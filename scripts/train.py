@@ -19,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.data import PairedImageDataset, get_transforms
 from src.models import UNet, HybridLoss
 from src.training import train_epoch, validate
+import mlflow
+import mlflow.pytorch
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -142,21 +144,53 @@ def train(config: dict, device: torch.device):
     
     # Crear directorio de modelos
     Path(config['data']['models_dir']).mkdir(parents=True, exist_ok=True)
+
+    # Configurar MLflow si está habilitado
+    mlflow_enabled = config.get('mlflow', {}).get('enabled', False)
+    if mlflow_enabled:
+        tracking_uri = config.get('mlflow', {}).get('tracking_uri', None)
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+        experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
+        mlflow.set_experiment(experiment_name)
     
     # Logging
     best_val_loss = float('inf')
     patience_counter = 0
     
     logger.info("Iniciando entrenamiento...")
+
+    run = None
+    if mlflow_enabled:
+        # Iniciar run de MLflow y registrar parámetros
+        run = mlflow.start_run()
+        # Log params (selección plana)
+        mlflow.log_param('model.type', config.get('model', {}).get('type', 'unet'))
+        mlflow.log_param('model.base_channels', config.get('model', {}).get('base_channels'))
+        mlflow.log_param('training.batch_size', config.get('training', {}).get('batch_size'))
+        mlflow.log_param('training.epochs', config.get('training', {}).get('epochs'))
+        mlflow.log_param('training.learning_rate', config.get('training', {}).get('learning_rate'))
+        mlflow.log_param('loss.type', config.get('loss', {}).get('type'))
+        mlflow.log_param('data.input_dir', config.get('data', {}).get('input_dir'))
+
     
     for epoch in range(config['training']['epochs']):
         # Entrenamiento
         train_metrics = train_epoch(
             model, train_loader, optimizer, loss_fn, device, epoch
         )
+
+        # Registrar métricas de entrenamiento en MLflow
+        if mlflow_enabled:
+            mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
         
         # Validación
         val_metrics = validate(model, val_loader, loss_fn, device)
+
+        # Registrar métricas de validación en MLflow
+        if mlflow_enabled:
+            mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+            mlflow.log_metric('val/psnr', val_metrics['psnr'], step=epoch)
         
         # Scheduler
         scheduler.step()
@@ -174,11 +208,15 @@ def train(config: dict, device: torch.device):
             patience_counter = 0
             
             # Guardar mejor modelo
+            best_path = Path(config['data']['models_dir']) / 'best_model.pth'
             torch.save(
                 model.state_dict(),
-                Path(config['data']['models_dir']) / 'best_model.pth'
+                best_path
             )
             logger.info("✓ Mejor modelo guardado")
+            if mlflow_enabled:
+                # Registrar checkpoint como artefacto
+                mlflow.log_artifact(str(best_path), artifact_path='checkpoints')
         else:
             patience_counter += 1
             if patience_counter >= config['training']['early_stopping_patience']:
@@ -187,12 +225,24 @@ def train(config: dict, device: torch.device):
         
         # Checkpoint periódico
         if (epoch + 1) % config['training']['save_interval'] == 0:
+            ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
             torch.save(
                 model.state_dict(),
-                Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
+                ckpt_path
             )
+            if mlflow_enabled:
+                mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
     
     logger.info("¡Entrenamiento completado!")
+
+    # Log final model to MLflow
+    if mlflow_enabled:
+        try:
+            mlflow.pytorch.log_model(model, artifact_path='model')
+        except Exception as e:
+            logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
+        finally:
+            mlflow.end_run()
 
 
 def main():

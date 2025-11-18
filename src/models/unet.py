@@ -90,7 +90,10 @@ class UNet(nn.Module):
         # Bottleneck
         self.bottleneck = nn.Sequential(
             ConvBlock(base_channels * 8, base_channels * 16),
-            ConvBlock(base_channels * 16, base_channels * 8)
+            # Mantener la dimensionalidad en el bottleneck (1024 canales
+            # cuando base_channels=64) para que el decoder reciba el
+            # número de canales esperado por los UpBlocks.
+            ConvBlock(base_channels * 16, base_channels * 16)
         )
         
         # Decoder

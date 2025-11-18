@@ -1,3 +1,37 @@
+import os
+import cv2
+import numpy as np
+import torch
+from src.data.dataset import PairedImageDataset
+
+
+def _create_dummy_image(path, shape=(64, 64, 3), color=(128, 128, 128)):
+    img = np.full(shape, color, dtype=np.uint8)
+    cv2.imwrite(path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+
+
+def test_paired_dataset_returns_tensors(tmp_path):
+    input_dir = tmp_path / "input"
+    gt_dir = tmp_path / "ground_truth"
+    input_dir.mkdir()
+    gt_dir.mkdir()
+
+    # crear 2 pares de imágenes
+    for i in range(2):
+        name = f"img_{i}.jpg"
+        _create_dummy_image(str(input_dir / name))
+        _create_dummy_image(str(gt_dir / name))
+
+    ds = PairedImageDataset(str(input_dir), str(gt_dir), transform=None)
+    sample = ds[0]
+
+    assert 'input' in sample and 'gt' in sample
+    assert isinstance(sample['input'], torch.Tensor)
+    assert isinstance(sample['gt'], torch.Tensor)
+    # comprobar shape CHW
+    assert sample['input'].ndim == 3
+    assert sample['input'].shape[0] in (1, 3)
+    assert sample['gt'].shape[0] in (1, 3)
 """
 Pruebas unitarias para el módulo de datos
 """

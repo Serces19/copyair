@@ -5,6 +5,7 @@ Dataset personalizado para pares de imágenes (input/ground truth)
 import os
 import cv2
 import numpy as np
+import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from typing import Optional, Tuple, Callable
@@ -84,10 +85,32 @@ class PairedImageDataset(Dataset):
             transformed = self.transform(image=input_img, image1=gt_img)
             input_img = transformed['image']
             gt_img = transformed['image1']
-        
+
+        # Normalizar y asegurar tensores torch con forma (C, H, W)
+        def _to_tensor(img):
+            # numpy array HWC
+            if isinstance(img, np.ndarray):
+                img = img.astype(np.float32) / 255.0
+                img = torch.from_numpy(img).permute(2, 0, 1)
+                return img
+            # already a torch tensor
+            if isinstance(img, torch.Tensor):
+                # If tensor is HWC, convert to CHW
+                if img.ndim == 3 and img.shape[0] != 3 and img.shape[-1] == 3:
+                    img = img.permute(2, 0, 1)
+                img = img.float()
+                # If values are in 0-255 range, scale to 0-1
+                if img.max() > 2.0:
+                    img = img / 255.0
+                return img
+            raise TypeError(f"Tipo de imagen no soportado: {type(img)}")
+
+        input_tensor = _to_tensor(input_img)
+        gt_tensor = _to_tensor(gt_img)
+
         return {
-            'input': input_img.astype(np.float32) / 255.0,
-            'gt': gt_img.astype(np.float32) / 255.0,
+            'input': input_tensor,
+            'gt': gt_tensor,
             'filename': img_name
         }
 
@@ -128,8 +151,21 @@ class VideoFrameDataset(Dataset):
         if self.transform is not None:
             transformed = self.transform(image=frame)
             frame = transformed['image']
-        
+
+        # Convertir a tensor CHW float en [0,1]
+        if isinstance(frame, np.ndarray):
+            frame = frame.astype(np.float32) / 255.0
+            frame = torch.from_numpy(frame).permute(2, 0, 1)
+        elif isinstance(frame, torch.Tensor):
+            if frame.ndim == 3 and frame.shape[0] != 3 and frame.shape[-1] == 3:
+                frame = frame.permute(2, 0, 1)
+            frame = frame.float()
+            if frame.max() > 2.0:
+                frame = frame / 255.0
+        else:
+            raise TypeError(f"Tipo de frame no soportado: {type(frame)}")
+
         return {
-            'frame': frame.astype(np.float32) / 255.0,
+            'frame': frame,
             'filename': frame_name
         }
