@@ -193,6 +193,54 @@ def train(config: dict, device: torch.device):
                 mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                 mlflow.log_metric('val/psnr', val_metrics['psnr'], step=epoch)
 
+                # Visualización de validación cada 100 épocas
+                if (epoch + 1) % 100 == 0:
+                    try:
+                        # Obtener un batch de validación
+                        val_batch = next(iter(val_loader))
+                        input_img = val_batch['input'][:1].to(device)  # Solo primera imagen
+                        gt_img = val_batch['gt'][:1].to(device)
+                        
+                        # Predicción
+                        model.eval()
+                        with torch.no_grad():
+                            pred_img = model(input_img)
+                        
+                        # Denormalizar input para visualización
+                        def denormalize(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+                            """Denormaliza tensor de ImageNet stats a [0, 1]"""
+                            mean = torch.tensor(mean).view(3, 1, 1).to(tensor.device)
+                            std = torch.tensor(std).view(3, 1, 1).to(tensor.device)
+                            return torch.clamp(tensor * std + mean, 0, 1)
+                        
+                        # Preparar imágenes para logging
+                        input_vis = denormalize(input_img[0].cpu()).numpy()
+                        gt_vis = gt_img[0].cpu().numpy()  # GT ya está en [0, 1]
+                        pred_vis = pred_img[0].cpu().numpy()
+                        
+                        # Convertir CHW a HWC para guardar
+                        import numpy as np
+                        input_vis = np.transpose(input_vis, (1, 2, 0))
+                        gt_vis = np.transpose(gt_vis, (1, 2, 0))
+                        pred_vis = np.transpose(pred_vis, (1, 2, 0))
+                        
+                        # Concatenar horizontalmente
+                        comparison = np.concatenate([input_vis, gt_vis, pred_vis], axis=1)
+                        comparison = (comparison * 255).astype(np.uint8)
+                        
+                        # Guardar temp y loggear
+                        import tempfile
+                        from PIL import Image
+                        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                            Image.fromarray(comparison).save(f.name)
+                            mlflow.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
+                            import os
+                            os.unlink(f.name)
+                        
+                        logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
+                    except Exception as e:
+                        logger.warning(f"No se pudo guardar imagen de validación: {e}")
+
                 # Scheduler
                 scheduler.step()
                 current_lr = scheduler.get_last_lr()[0]

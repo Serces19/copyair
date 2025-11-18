@@ -80,33 +80,56 @@ class PairedImageDataset(Dataset):
         input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
         gt_img = cv2.cvtColor(gt_img, cv2.COLOR_BGR2RGB)
         
-        # Aplicar transformaciones si existen
+        # Aplicar transformaciones
         if self.transform is not None:
-            transformed = self.transform(image=input_img, image1=gt_img)
-            input_img = transformed['image']
-            gt_img = transformed['image1']
+            # Nuevo formato: diccionario con 'common', 'input', 'gt'
+            if isinstance(self.transform, dict):
+                # 1. Transformaciones geométricas (ambas imágenes)
+                if 'common' in self.transform:
+                    transformed = self.transform['common'](image=input_img, image0=gt_img)
+                    input_img = transformed['image']
+                    gt_img = transformed['image0']
+                
+                # 2. Transformaciones de input (pixel-level + normalize)
+                if 'input' in self.transform:
+                    transformed_input = self.transform['input'](image=input_img)
+                    input_img = transformed_input['image']
+                
+                # 3. Transformación de GT (solo ToTensor, sin normalize)
+                if 'gt' in self.transform:
+                    transformed_gt = self.transform['gt'](image=gt_img)
+                    gt_img = transformed_gt['image']
+            else:
+                # Formato antiguo (backward compatibility)
+                transformed = self.transform(image=input_img, image1=gt_img)
+                input_img = transformed['image']
+                gt_img = transformed['image1']
 
-        # Normalizar y asegurar tensores torch con forma (C, H, W)
+        # Convertir a tensores si aún no lo son
         def _to_tensor(img):
-            # numpy array HWC
             if isinstance(img, np.ndarray):
                 img = img.astype(np.float32) / 255.0
                 img = torch.from_numpy(img).permute(2, 0, 1)
                 return img
-            # already a torch tensor
             if isinstance(img, torch.Tensor):
-                # If tensor is HWC, convert to CHW
                 if img.ndim == 3 and img.shape[0] != 3 and img.shape[-1] == 3:
                     img = img.permute(2, 0, 1)
                 img = img.float()
-                # If values are in 0-255 range, scale to 0-1
                 if img.max() > 2.0:
                     img = img / 255.0
                 return img
             raise TypeError(f"Tipo de imagen no soportado: {type(img)}")
 
-        input_tensor = _to_tensor(input_img)
-        gt_tensor = _to_tensor(gt_img)
+        # Solo convertir si no es tensor (transforms ya lo convirtieron)
+        if not isinstance(input_img, torch.Tensor):
+            input_tensor = _to_tensor(input_img)
+        else:
+            input_tensor = input_img
+            
+        if not isinstance(gt_img, torch.Tensor):
+            gt_tensor = _to_tensor(gt_img)
+        else:
+            gt_tensor = gt_img
 
         return {
             'input': input_tensor,
