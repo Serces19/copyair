@@ -10,14 +10,14 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
-from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import PairedImageDataset, get_transforms
-from src.models import UNet, HybridLoss
+from src.models import HybridLoss
+from src.models.factory import get_model, get_optimizer
 from src.training.train import train_epoch, validate
 import mlflow
 import mlflow.pytorch
@@ -103,23 +103,15 @@ def setup_data(config: dict, device: torch.device):
 
 
 def setup_model_and_optimizer(config: dict, device: torch.device):
-    """Configura modelo y optimizador"""
-    logger.info("Inicializando modelo...")
+    """Configura modelo y optimizador usando el factory"""
+    logger.info(f"Inicializando modelo: {config['model'].get('architecture', 'unet')}")
     
-    # Modelo
-    model = UNet(
-        in_channels=config['model']['in_channels'],
-        out_channels=config['model']['out_channels'],
-        base_channels=config['model']['base_channels']
-    )
+    # Modelo usando Factory
+    model = get_model(config['model'])
     model = model.to(device)
     
-    # Optimizador
-    optimizer = Adam(
-        model.parameters(),
-        lr=config['training']['learning_rate'],
-        weight_decay=config['training']['weight_decay']
-    )
+    # Optimizador usando Factory
+    optimizer = get_optimizer(model, config['training'])
     
     # Scheduler
     scheduler = CosineAnnealingLR(
@@ -170,15 +162,20 @@ def train(config: dict, device: torch.device):
 
     if mlflow_enabled:
         # Iniciar run de MLflow y registrar parámetros
-        with mlflow.start_run(run_name="unet_run"):
-            # Log params (selección plana)
-            mlflow.log_param('model.type', config.get('model', {}).get('type', 'unet'))
-            mlflow.log_param('model.base_channels', config.get('model', {}).get('base_channels'))
-            mlflow.log_param('training.batch_size', config.get('training', {}).get('batch_size'))
-            mlflow.log_param('training.epochs', config.get('training', {}).get('epochs'))
-            mlflow.log_param('training.learning_rate', config.get('training', {}).get('learning_rate'))
-            mlflow.log_param('loss.type', config.get('loss', {}).get('type'))
-            mlflow.log_param('data.input_dir', config.get('data', {}).get('input_dir'))
+        run_name = f"{config['model'].get('architecture', 'unet')}_{config['training'].get('optimizer', {}).get('type', 'adam')}"
+        with mlflow.start_run(run_name=run_name):
+            # Log params
+            mlflow.log_param('model.architecture', config['model'].get('architecture', 'unet'))
+            mlflow.log_param('model.activation', config['model'].get('activation', 'relu'))
+            mlflow.log_param('model.base_channels', config['model'].get('base_channels'))
+            
+            mlflow.log_param('training.batch_size', config['training'].get('batch_size'))
+            mlflow.log_param('training.epochs', config['training'].get('epochs'))
+            mlflow.log_param('training.learning_rate', config['training'].get('learning_rate'))
+            mlflow.log_param('training.optimizer', config['training'].get('optimizer', {}).get('type', 'adam'))
+            
+            mlflow.log_param('loss.type', config['loss'].get('type'))
+            mlflow.log_param('data.input_dir', config['data'].get('input_dir'))
 
             for epoch in range(config['training']['epochs']):
                 # Entrenamiento
@@ -198,6 +195,8 @@ def train(config: dict, device: torch.device):
 
                 # Scheduler
                 scheduler.step()
+                current_lr = scheduler.get_last_lr()[0]
+                mlflow.log_metric('train/lr', current_lr, step=epoch)
 
                 logger.info(
                     f"Época {epoch + 1}/{config['training']['epochs']} | "

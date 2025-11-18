@@ -10,10 +10,11 @@ data:
 
 # Parámetros del modelo
 model:
-  type: "unet"  # unet o unet_convnext
+  architecture: "unet" # unet, convexnet, mambairv2, umamba, nafnet
   in_channels: 3
   out_channels: 3
   base_channels: 64
+  activation: "relu" # relu, gelu, mish, silu, leaky_relu
 
 # Parámetros de entrenamiento
 training:
@@ -21,6 +22,13 @@ training:
   batch_size: 8
   learning_rate: 0.001
   weight_decay: 0.0001
+  
+  # Optimizador
+  optimizer:
+    type: "adam" # adam, adamw, sgd, rmsprop
+    beta1: 0.9
+    beta2: 0.999
+    momentum: 0.9 # Solo para SGD
   
   # Validación
   val_split: 0.2
@@ -62,9 +70,9 @@ logging:
   log_dir: "logs"
   
 mlflow:
-  enabled: false
-  experiment_name: "copyair"
-  tracking_uri: "http://localhost:5000"
+  enabled: true
+  experiment_name: "copyair_experiments"
+  tracking_uri: "mlruns" # Local directory or server URI
 
 # Inferencia en video
 inference:
