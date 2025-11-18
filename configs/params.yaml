@@ -1,0 +1,72 @@
+# CopyAir - Image-to-Image Translation Configuration
+
+# Parámetros de entrada/salida
+data:
+  input_dir: "data/03_processed/input"
+  gt_dir: "data/03_processed/ground_truth"
+  frames_dir: "data/02_interim/frames"
+  output_dir: "output_inference"
+  models_dir: "models"
+
+# Parámetros del modelo
+model:
+  type: "unet"  # unet o unet_convnext
+  in_channels: 3
+  out_channels: 3
+  base_channels: 64
+
+# Parámetros de entrenamiento
+training:
+  epochs: 2000
+  batch_size: 8
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  
+  # Validación
+  val_split: 0.2
+  
+  # Scheduler
+  scheduler_type: "cosine"  # cosine, step, exponential
+  warmup_epochs: 5
+  
+  # Checkpoint
+  save_interval: 5
+  early_stopping_patience: 10
+
+# Parámetros de pérdida
+loss:
+  type: "hybrid"  # l1, ssim, hybrid
+  lambda_l1: 0.6
+  lambda_ssim: 0.2
+  lambda_perceptual: 0.2
+
+# Aumentación de datos
+augmentation:
+  enabled: true
+  img_size: 256
+  horizontal_flip_p: 0.5
+  vertical_flip_p: 0.2
+  rotation_limit: 15
+  gaussian_noise_p: 0.2
+  gaussian_blur_p: 0.2
+  color_jitter_p: 0.3
+
+# Hardware
+device: "cuda"  # cuda o cpu
+num_workers: 4
+pin_memory: true
+
+# Logging y experimentos
+logging:
+  level: "INFO"
+  log_dir: "logs"
+  
+mlflow:
+  enabled: false
+  experiment_name: "copyair"
+  tracking_uri: "http://localhost:5000"
+
+# Inferencia en video
+inference:
+  target_fps: 24
+  frame_sample_rate: 1  # Procesar cada N frames

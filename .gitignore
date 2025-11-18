@@ -1,0 +1,50 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Venv
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data
+data/01_raw/
+data/02_interim/
+data/03_processed/
+
+# Models
+models/*.pth
+models/*.pt
+
+# Output
+output_inference/
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLflow
+mlruns/
+.mlflow
+
+# DVC
+.dvc
+.dvc.yaml
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Misc
+*.log
+.env
+.env.local
