@@ -30,7 +30,7 @@ class PairedImageDataset(Dataset):
         input_dir: str, 
         gt_dir: str,
         transform: Optional[Callable] = None,
-        img_format: str = "jpg"
+        img_format: str = "png"
     ):
         """
         Args:

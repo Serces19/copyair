@@ -67,7 +67,7 @@ copyair/
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/usuario/copyair.git
+git clone https://github.com/Serces19/copyair.git
 cd copyair
 
 # Crear entorno virtual
@@ -81,6 +81,9 @@ source venv/bin/activate
 
 # Instalar dependencias
 pip install -r requirements.txt
+
+# Iniciar MLFlow
+mlflow server --host 0.0.0.0 --port 5000 --allowed-hosts "*"
 ```
 
 ### 2. Preparar Datos
