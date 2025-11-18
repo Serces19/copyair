@@ -56,13 +56,15 @@ def load_model(model_path: str, config: dict, device: torch.device) -> UNet:
     return model
 
 
-def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device):
+def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False):
     """Predice en video"""
     
     # Cargar modelo
     model = load_model(model_path, config, device)
     
     # Transformaciones
+    # Si es native_resolution, el transform se usa solo para normalización dentro de predict_on_video
+    # Si no, se usa para resize + normalización
     transform = get_inference_transforms(config['augmentation']['img_size'])
     
     # Predicción
@@ -72,7 +74,8 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         output_path,
         device,
         transform=transform,
-        target_fps=config['inference']['target_fps']
+        target_fps=config['inference']['target_fps'],
+        native_resolution=native_resolution
     )
     
     logger.info(f"✓ Video generado: {output_path}")
@@ -95,6 +98,7 @@ def main():
     parser.add_argument('--output', type=str, help='Ruta al video de salida')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo')
     parser.add_argument('--extract-frames', action='store_true', help='Solo extraer frames')
+    parser.add_argument('--native-resolution', action='store_true', help='Usar resolución nativa del video (sin resize)')
     
     args = parser.parse_args()
     
@@ -108,7 +112,7 @@ def main():
     if args.extract_frames and args.video:
         extract_frames(args.video, config['data']['frames_dir'])
     elif args.video and args.output:
-        predict(config, args.model, args.video, args.output, device)
+        predict(config, args.model, args.video, args.output, device, args.native_resolution)
     else:
         parser.print_help()
 
