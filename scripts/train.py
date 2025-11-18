@@ -206,7 +206,10 @@ def train(config: dict, device: torch.device):
                 )
 
                 # Early stopping
-                if val_metrics['val_loss'] < best_val_loss:
+
+                if epoch > 250 and (val_metrics['val_loss'] < best_val_loss * 0.96 or epoch - last_saved_epoch >= 250):
+                #if val_metrics['val_loss'] < best_val_loss:
+                    last_saved_epoch = epoch
                     best_val_loss = val_metrics['val_loss']
                     patience_counter = 0
 
@@ -225,6 +228,7 @@ def train(config: dict, device: torch.device):
 
                 # Checkpoint periódico
                 if (epoch + 1) % config['training']['save_interval'] == 0:
+                    last_saved_epoch = epoch
                     ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
                     torch.save(model.state_dict(), ckpt_path)
                     mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
