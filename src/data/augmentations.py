@@ -58,6 +58,7 @@ def get_transforms(
         
     # Transformación para GT (solo ToTensor, sin normalizar mean/std)
     gt_transforms = A.Compose([
+        A.ToFloat(max_value=255.0),  # Convert uint8 to float [0, 1]
         ToTensorV2(),
     ])
     
