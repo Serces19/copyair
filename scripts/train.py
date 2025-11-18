@@ -18,12 +18,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import PairedImageDataset, get_transforms
 from src.models import UNet, HybridLoss
-from src.training import train_epoch, validate
+from src.training.train import train_epoch, validate
 import mlflow
 import mlflow.pytorch
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
+# Configurar logging: asegurarse de que haya un handler que imprima INFO
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+if not root_logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,13 +143,13 @@ def setup_model_and_optimizer(config: dict, device: torch.device):
 
 def train(config: dict, device: torch.device):
     """Loop principal de entrenamiento"""
-    
+
     # Datos
     train_loader, val_loader = setup_data(config, device)
-    
+
     # Modelo y optimizador
     model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device)
-    
+
     # Crear directorio de modelos
     Path(config['data']['models_dir']).mkdir(parents=True, exist_ok=True)
 
@@ -153,96 +161,96 @@ def train(config: dict, device: torch.device):
             mlflow.set_tracking_uri(tracking_uri)
         experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
         mlflow.set_experiment(experiment_name)
-    
+
     # Logging
     best_val_loss = float('inf')
     patience_counter = 0
-    
+
     logger.info("Iniciando entrenamiento...")
 
-    run = None
     if mlflow_enabled:
         # Iniciar run de MLflow y registrar parámetros
-        run = mlflow.start_run()
-        # Log params (selección plana)
-        mlflow.log_param('model.type', config.get('model', {}).get('type', 'unet'))
-        mlflow.log_param('model.base_channels', config.get('model', {}).get('base_channels'))
-        mlflow.log_param('training.batch_size', config.get('training', {}).get('batch_size'))
-        mlflow.log_param('training.epochs', config.get('training', {}).get('epochs'))
-        mlflow.log_param('training.learning_rate', config.get('training', {}).get('learning_rate'))
-        mlflow.log_param('loss.type', config.get('loss', {}).get('type'))
-        mlflow.log_param('data.input_dir', config.get('data', {}).get('input_dir'))
+        with mlflow.start_run(run_name="unet_run"):
+            # Log params (selección plana)
+            mlflow.log_param('model.type', config.get('model', {}).get('type', 'unet'))
+            mlflow.log_param('model.base_channels', config.get('model', {}).get('base_channels'))
+            mlflow.log_param('training.batch_size', config.get('training', {}).get('batch_size'))
+            mlflow.log_param('training.epochs', config.get('training', {}).get('epochs'))
+            mlflow.log_param('training.learning_rate', config.get('training', {}).get('learning_rate'))
+            mlflow.log_param('loss.type', config.get('loss', {}).get('type'))
+            mlflow.log_param('data.input_dir', config.get('data', {}).get('input_dir'))
 
-    
-    for epoch in range(config['training']['epochs']):
-        # Entrenamiento
-        train_metrics = train_epoch(
-            model, train_loader, optimizer, loss_fn, device, epoch
-        )
+            for epoch in range(config['training']['epochs']):
+                # Entrenamiento
+                train_metrics = train_epoch(
+                    model, train_loader, optimizer, loss_fn, device, epoch
+                )
 
-        # Registrar métricas de entrenamiento en MLflow
-        if mlflow_enabled:
-            mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
-        
-        # Validación
-        val_metrics = validate(model, val_loader, loss_fn, device)
+                # Registrar métricas de entrenamiento en MLflow
+                mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
 
-        # Registrar métricas de validación en MLflow
-        if mlflow_enabled:
-            mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
-            mlflow.log_metric('val/psnr', val_metrics['psnr'], step=epoch)
-        
-        # Scheduler
-        scheduler.step()
-        
-        logger.info(
-            f"Época {epoch + 1}/{config['training']['epochs']} | "
-            f"Train Loss: {train_metrics['loss']:.4f} | "
-            f"Val Loss: {val_metrics['val_loss']:.4f} | "
-            f"PSNR: {val_metrics['psnr']:.2f}"
-        )
-        
-        # Early stopping
-        if val_metrics['val_loss'] < best_val_loss:
-            best_val_loss = val_metrics['val_loss']
-            patience_counter = 0
-            
-            # Guardar mejor modelo
-            best_path = Path(config['data']['models_dir']) / 'best_model.pth'
-            torch.save(
-                model.state_dict(),
-                best_path
+                # Validación
+                val_metrics = validate(model, val_loader, loss_fn, device)
+
+                # Registrar métricas de validación en MLflow
+                mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+                mlflow.log_metric('val/psnr', val_metrics['psnr'], step=epoch)
+
+                # Scheduler
+                scheduler.step()
+
+                logger.info(
+                    f"Época {epoch + 1}/{config['training']['epochs']} | "
+                    f"Train Loss: {train_metrics['loss']:.4f} | "
+                    f"Val Loss: {val_metrics['val_loss']:.4f} | "
+                    f"PSNR: {val_metrics['psnr']:.2f}"
+                )
+
+                # Early stopping
+                if val_metrics['val_loss'] < best_val_loss:
+                    best_val_loss = val_metrics['val_loss']
+                    patience_counter = 0
+
+                    # Guardar mejor modelo
+                    best_path = Path(config['data']['models_dir']) / 'best_model.pth'
+                    torch.save(model.state_dict(), best_path)
+                    logger.info("✓ Mejor modelo guardado")
+
+                    # Registrar checkpoint como artefacto
+                    mlflow.log_artifact(str(best_path), artifact_path='checkpoints')
+                else:
+                    patience_counter += 1
+                    if patience_counter >= config['training']['early_stopping_patience']:
+                        logger.info(f"Early stopping después de {epoch + 1} épocas")
+                        break
+
+                # Checkpoint periódico
+                if (epoch + 1) % config['training']['save_interval'] == 0:
+                    ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
+                    torch.save(model.state_dict(), ckpt_path)
+                    mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
+
+            logger.info("¡Entrenamiento completado!")
+
+            # Log final model to MLflow
+            try:
+                mlflow.pytorch.log_model(model, artifact_path='model')
+            except Exception as e:
+                logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
+
+    else:
+        # Si MLflow está deshabilitado, solo corre el loop normal
+        for epoch in range(config['training']['epochs']):
+            train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch)
+            val_metrics = validate(model, val_loader, loss_fn, device)
+            scheduler.step()
+            logger.info(
+                f"Época {epoch + 1}/{config['training']['epochs']} | "
+                f"Train Loss: {train_metrics['loss']:.4f} | "
+                f"Val Loss: {val_metrics['val_loss']:.4f} | "
+                f"PSNR: {val_metrics['psnr']:.2f}"
             )
-            logger.info("✓ Mejor modelo guardado")
-            if mlflow_enabled:
-                # Registrar checkpoint como artefacto
-                mlflow.log_artifact(str(best_path), artifact_path='checkpoints')
-        else:
-            patience_counter += 1
-            if patience_counter >= config['training']['early_stopping_patience']:
-                logger.info(f"Early stopping después de {epoch + 1} épocas")
-                break
-        
-        # Checkpoint periódico
-        if (epoch + 1) % config['training']['save_interval'] == 0:
-            ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
-            torch.save(
-                model.state_dict(),
-                ckpt_path
-            )
-            if mlflow_enabled:
-                mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
-    
-    logger.info("¡Entrenamiento completado!")
 
-    # Log final model to MLflow
-    if mlflow_enabled:
-        try:
-            mlflow.pytorch.log_model(model, artifact_path='model')
-        except Exception as e:
-            logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
-        finally:
-            mlflow.end_run()
 
 
 def main():

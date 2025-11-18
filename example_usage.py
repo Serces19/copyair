@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from src.data import PairedImageDataset, get_transforms
 from src.models import UNet, HybridLoss
-from src.training import train_epoch, validate
+from src.training.train import train_epoch, validate
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 

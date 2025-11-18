@@ -18,7 +18,7 @@ import yaml
 
 from src.data import PairedImageDataset, get_transforms
 from src.models import UNet, HybridLoss
-from src.training import train_epoch, validate
+from src.training.train import train_epoch, validate
 
 print("=" * 70)
 print("CopyAir - Tutorial: Entrenar U-Net desde Python")
@@ -31,7 +31,7 @@ print("=" * 70)
 CONFIG = {
     'device': torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
     'input_dir': 'data/03_processed/input',
-    'gt_dir': 'data/03_processed/ground_truth',
+    'gt_dir': 'data/03_processed/gt',
     'models_dir': 'models',
     'epochs': 5,  # Para tutorial, usamos pocas épocas
     'batch_size': 4,
