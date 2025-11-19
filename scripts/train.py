@@ -124,7 +124,9 @@ def setup_model_and_optimizer(config: dict, device: torch.device):
     loss_fn = HybridLoss(
         lambda_l1=config['loss']['lambda_l1'],
         lambda_ssim=config['loss']['lambda_ssim'],
-        lambda_perceptual=config['loss']['lambda_perceptual']
+        lambda_perceptual=config['loss']['lambda_perceptual'],
+        lambda_laplacian=config['loss'].get('lambda_laplacian', 0.05),
+        device=str(device)
     )
     loss_fn = loss_fn.to(device)
     

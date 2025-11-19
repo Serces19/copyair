@@ -39,14 +39,15 @@ training:
   
   # Checkpoint
   save_interval: 250
-  early_stopping_patience: 250
+  early_stopping_patience: 300
 
 # Parámetros de pérdida
 loss:
   type: "hybrid"  # l1, ssim, hybrid
   lambda_l1: 0.6
   lambda_ssim: 0.2
-  lambda_perceptual: 0.2
+  lambda_perceptual: 0.15
+  lambda_laplacian: 0.05
 
 # Aumentación de datos
 augmentation:
