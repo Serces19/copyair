@@ -18,14 +18,14 @@ model:
 
 # Parámetros de entrenamiento
 training:
-  epochs: 2000
+  epochs: 500
   batch_size: 8
   learning_rate: 0.001
   weight_decay: 0.0001
   
   # Optimizador
   optimizer:
-    type: "adam" # adam, adamw, sgd, rmsprop
+    type: "adamw" # adam, adamw, sgd, rmsprop
     beta1: 0.9
     beta2: 0.999
     momentum: 0.9 # Solo para SGD
