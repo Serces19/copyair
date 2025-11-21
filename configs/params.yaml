@@ -10,18 +10,49 @@ data:
 
 # Parámetros del modelo
 model:
-  architecture: "unet" # unet, convexnet, mambairv2, umamba, nafnet
+  # Arquitecturas disponibles:
+  # - unet: U-Net clásica
+  # - nafnet: NAFNet HD (mejor para pocas imágenes)
+  # - convnext: ConvNeXt U-Net (excelente para few-shot)
+  # - convexnet, mambairv2, umamba (otras opciones)
+  
+  architecture: "unet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
+  
+  # Para NAFNet y ConvNeXt, especificar tamaño:
+  size: "base"  # nano, tiny, small, base, large (según arquitectura)
+  
+  # Parámetros generales
   in_channels: 3
   out_channels: 3
-  base_channels: 64
-  activation: "relu" # relu, gelu, mish, silu, leaky_relu
+  base_channels: 64  # Solo para UNet
+  activation: "relu"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
+  
+  # Para ConvNeXt: drop_path_rate (regularización)
+  drop_path_rate: 0.1  # 0.05-0.2 recomendado para pocas imágenes
+  
+  # Ejemplos de configuración por caso de uso:
+  
+  # Para 5-8 imágenes (pocas):
+  # architecture: "nafnet"
+  # size: "small"
+  # drop_path_rate: 0.15
+  
+  # Para 8-12 imágenes (medio):
+  # architecture: "convnext"
+  # size: "nano"
+  # drop_path_rate: 0.1
+  
+  # Para 12-15 imágenes (más datos):
+  # architecture: "nafnet"
+  # size: "base"
+  # drop_path_rate: 0.05
 
 # Parámetros de entrenamiento
 training:
   epochs: 500
   batch_size: 8
-  learning_rate: 0.001
-  weight_decay: 0.0001
+  learning_rate: 1e-3
+  weight_decay: 1e-4
   
   # Optimizador
   optimizer:

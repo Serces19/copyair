@@ -186,6 +186,9 @@ def train(config: dict, device: torch.device):
             mlflow.log_param('loss.type', config['loss'].get('type'))
             mlflow.log_param('data.input_dir', config['data'].get('input_dir'))
 
+            min_delta = 0.02
+            epsilon = 1e-8
+
             for epoch in range(config['training']['epochs']):
                 # Entrenamiento
                 train_metrics = train_epoch(
@@ -260,10 +263,8 @@ def train(config: dict, device: torch.device):
                     f"PSNR: {val_metrics['psnr']:.2f}"
                 )
 
-                # Early stopping
-
-                if epoch > 250 and (val_metrics['val_loss'] < best_val_loss * 0.96 or epoch - last_saved_epoch >= 250):
-                #if val_metrics['val_loss'] < best_val_loss:
+                # Early stopping       
+                if epoch > 250 and (val_metrics['val_loss'] < best_val_loss * (1 - min_delta) - epsilon or epoch - last_saved_epoch >= config['training']['early_stopping_patience']):
                     last_saved_epoch = epoch
                     best_val_loss = val_metrics['val_loss']
                     patience_counter = 0
