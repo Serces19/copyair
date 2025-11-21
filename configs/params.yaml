@@ -30,12 +30,59 @@ training:
     beta2: 0.999
     momentum: 0.9 # Solo para SGD
   
+  # Learning Rate Scheduler (nuevo sistema flexible!)
+  # Opciones: constant, cosine, step, exponential, plateau, onecycle, cosine_warmup
+  scheduler:
+    type: "constant"  # Usar LR constante (sin scheduler)
+    # params: {}  # No necesita parámetros
+  
+  # Ejemplos de otros schedulers (comentados):
+  
+  # Cosine Annealing (reduce LR suavemente)
+  # scheduler:
+  #   type: "cosine"
+  #   params:
+  #     T_max: 500  # Número de épocas
+  #     eta_min: 0  # LR mínimo
+  
+  # Step LR (reduce LR cada N épocas)
+  # scheduler:
+  #   type: "step"
+  #   params:
+  #     step_size: 100  # Reducir cada 100 épocas
+  #     gamma: 0.5      # Multiplicar LR por 0.5
+  
+  # Exponential LR (decay exponencial)
+  # scheduler:
+  #   type: "exponential"
+  #   params:
+  #     gamma: 0.98  # Multiplicar LR por 0.98 cada época
+  
+  # Reduce on Plateau (reduce cuando val_loss se estanca)
+  # scheduler:
+  #   type: "plateau"
+  #   params:
+  #     mode: "min"      # Minimizar val_loss
+  #     factor: 0.5      # Reducir LR a la mitad
+  #     patience: 10     # Esperar 10 épocas sin mejora
+  #     verbose: true
+  
+  # OneCycle LR (para super-convergence)
+  # scheduler:
+  #   type: "onecycle"
+  #   params:
+  #     max_lr: 0.01  # LR máximo (se calcula automáticamente si no se especifica)
+  
+  # Cosine with Warm Restarts
+  # scheduler:
+  #   type: "cosine_warmup"
+  #   params:
+  #     T_0: 50        # Primer restart después de 50 épocas
+  #     T_mult: 2      # Duplicar periodo en cada restart
+  #     eta_min: 0
+  
   # Validación
   val_split: 0.2
-  
-  # Scheduler
-  scheduler_type: "cosine"  # cosine, step, exponential
-  warmup_epochs: 5
   
   # Checkpoint
   save_interval: 250

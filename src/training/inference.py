@@ -23,20 +23,22 @@ def predict_frame(
     
     Args:
         model: Modelo U-Net
-        frame: Frame normalizado [1, 3, H, W]
+        frame: Frame normalizado a [-1, 1] con shape [1, 3, H, W]
         device: CPU o GPU
     
     Returns:
-        Frame predicho como numpy array [H, W, 3]
+        Frame predicho como numpy array [H, W, 3] en rango [0, 255]
     """
     model.eval()
     
     with torch.no_grad():
         frame = frame.to(device)
-        output = model(frame)
+        output = model(frame)  # Output en [-1, 1]
         output = output.squeeze(0).cpu().numpy()  # [3, H, W]
         output = np.transpose(output, (1, 2, 0))  # [H, W, 3]
-        output = (np.clip(output, 0, 1) * 255).astype(np.uint8)
+        
+        # Desnormalizar de [-1, 1] a [0, 255]
+        output = ((output + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
     
     return output
 
@@ -81,6 +83,9 @@ def predict_on_video(
     Returns:
         Ruta del video generado
     """
+    import subprocess
+    import shutil
+    
     logger.info(f"Procesando video: {video_path}")
     
     # Abrir video
@@ -94,9 +99,44 @@ def predict_on_video(
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # Preparar escritor de video
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # Usar FFmpeg para escribir el video con color space correcto
+    ffmpeg_cmd = [
+        'ffmpeg',
+        '-y',  # Sobrescribir sin preguntar
+        '-f', 'rawvideo',
+        '-vcodec', 'rawvideo',
+        '-s', f'{width}x{height}',
+        '-pix_fmt', 'bgr24',
+        '-r', str(fps),
+        '-i', '-',  # Input desde stdin
+        '-an',  # Sin audio
+        '-vcodec', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-crf', '18',  # Calidad alta
+        '-preset', 'medium',
+        '-color_range', 'pc',  # Full range (0-255) en lugar de tv (16-235)
+        '-colorspace', 'bt709',
+        '-color_primaries', 'bt709',
+        '-color_trc', 'iec61966-2-1',  # sRGB gamma
+        output_path
+    ]
+    
+    # Verificar que ffmpeg esté disponible
+    if shutil.which('ffmpeg') is None:
+        logger.warning("FFmpeg no encontrado, usando cv2.VideoWriter (puede haber problemas de color)")
+        # Fallback a cv2.VideoWriter
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        use_ffmpeg = False
+    else:
+        try:
+            process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            use_ffmpeg = True
+        except Exception as e:
+            logger.warning(f"Error al iniciar FFmpeg: {e}, usando cv2.VideoWriter")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            use_ffmpeg = False
     
     model.eval()
     frame_count = 0
@@ -120,25 +160,11 @@ def predict_on_video(
             # Padding manual para cumplir requisitos de U-Net (divisible por 32)
             frame_padded, pad_h, pad_w = pad_to_divisor(frame_rgb, 32)
             
-            # Normalización manual (para no depender de Resize en transform)
-            frame_tensor = torch.from_numpy(frame_padded).permute(2, 0, 1).float() / 255.0
-            
-            # Aplicar normalización estándar de ImageNet si es necesario
-            # Aquí asumimos simple /255.0 para simplificar, o usamos transform si se pasa uno especial
-            # Idealmente usamos el transform solo para Normalize si existe
-            if transform is not None:
-                # Hack: Usamos transform solo para normalize si es posible, 
-                # pero transform suele tener Resize.
-                # Si native_resolution es True, ignoramos el transform de resize
-                # y aplicamos solo normalización si pudiéramos.
-                # Por ahora, normalización simple /255.0 suele funcionar bien con modelos entrenados con ImageNet stats
-                # si se reentrena. Si no, deberíamos aplicar (x - mean) / std.
-                # Vamos a aplicar la normalización estándar manualmente para ser robustos:
-                mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-                std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
-                frame_tensor = (frame_tensor - mean) / std
-            
-            frame_tensor = frame_tensor.unsqueeze(0) # [1, 3, H, W]
+            # Normalizar a [-1, 1]
+            # (pixel / 255.0) * 2 - 1
+            frame_tensor = torch.from_numpy(frame_padded).permute(2, 0, 1).float()
+            frame_tensor = (frame_tensor / 255.0) * 2.0 - 1.0  # [0, 255] → [-1, 1]
+            frame_tensor = frame_tensor.unsqueeze(0)  # [1, 3, H, W]
             
         else:
             # Modo Resize estándar
@@ -146,15 +172,19 @@ def predict_on_video(
                 transformed = transform(image=frame_rgb)
                 frame_tensor = transformed['image'].unsqueeze(0)
             else:
-                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+                # Fallback: normalizar manualmente a [-1, 1]
+                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).unsqueeze(0).float()
+                frame_tensor = (frame_tensor / 255.0) * 2.0 - 1.0
 
         # Predicción
         with torch.no_grad():
             frame_tensor = frame_tensor.to(device)
-            pred = model(frame_tensor)
+            pred = model(frame_tensor)  # Output en [-1, 1]
             pred = pred.squeeze(0).cpu().numpy()
             pred = np.transpose(pred, (1, 2, 0))
-            pred = (np.clip(pred, 0, 1) * 255).astype(np.uint8)
+            
+            # Desnormalizar de [-1, 1] a [0, 255]
+            pred = ((pred + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
         
         # Post-procesamiento
         pred_bgr = cv2.cvtColor(pred, cv2.COLOR_RGB2BGR)
@@ -168,15 +198,31 @@ def predict_on_video(
             # Redimensionar al tamaño original si hubo resize
             if pred_bgr.shape[0] != height or pred_bgr.shape[1] != width:
                 pred_bgr = cv2.resize(pred_bgr, (width, height))
-            
-        out.write(pred_bgr)
+        
+        # Escribir frame
+        if use_ffmpeg:
+            try:
+                process.stdin.write(pred_bgr.tobytes())
+            except BrokenPipeError:
+                logger.error("FFmpeg pipe roto")
+                break
+        else:
+            out.write(pred_bgr)
         
         frame_count += 1
         if (frame_count) % 10 == 0:
             logger.info(f"Procesados {frame_count}/{total_frames} frames")
     
     cap.release()
-    out.release()
+    
+    if use_ffmpeg:
+        process.stdin.close()
+        process.wait()
+        if process.returncode != 0:
+            stderr = process.stderr.read().decode()
+            logger.error(f"FFmpeg error: {stderr}")
+    else:
+        out.release()
     
     logger.info(f"Video guardado en: {output_path}")
     return output_path

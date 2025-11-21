@@ -58,7 +58,7 @@ class LaplacianPyramidLoss(nn.Module):
         return pyramid
 
     def forward(self, prediction, target):
-        # Nuestros tensores ya están en [0, 1], no necesitamos conversión
+        # Nuestros tensores están en [-1, 1], las pérdidas funcionan correctamente en este rango
         pred_pyramid = self.laplacian_pyramid(prediction)
         target_pyramid = self.laplacian_pyramid(target)
         loss = 0
@@ -107,7 +107,7 @@ class SSIMLoss(nn.Module):
 class PSNRLoss(nn.Module):
     """Peak Signal-to-Noise Ratio (PSNR) - Para evaluación"""
     
-    def __init__(self, max_val: float = 1.0):
+    def __init__(self, max_val: float = 2.0):  # Cambiado a 2.0 para rango [-1, 1]
         super().__init__()
         self.max_val = max_val
     

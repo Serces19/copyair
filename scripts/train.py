@@ -10,7 +10,6 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
-from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,6 +18,7 @@ from src.data import PairedImageDataset, get_transforms
 from src.models import HybridLoss
 from src.models.factory import get_model, get_optimizer
 from src.training.train import train_epoch, validate
+from src.training.schedulers import get_scheduler
 import mlflow
 import mlflow.pytorch
 
@@ -102,8 +102,8 @@ def setup_data(config: dict, device: torch.device):
     return train_loader, val_loader
 
 
-def setup_model_and_optimizer(config: dict, device: torch.device):
-    """Configura modelo y optimizador usando el factory"""
+def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=None):
+    """Configura modelo, optimizador y scheduler usando factories"""
     logger.info(f"Inicializando modelo: {config['model'].get('architecture', 'unet')}")
     
     # Modelo usando Factory
@@ -113,12 +113,19 @@ def setup_model_and_optimizer(config: dict, device: torch.device):
     # Optimizador usando Factory
     optimizer = get_optimizer(model, config['training'])
     
-    # Scheduler
-    scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=config['training']['epochs'],
-        eta_min=0
-    )
+    # Scheduler usando Factory (nuevo!)
+    scheduler_config = config['training'].get('scheduler', {'type': 'constant'})
+    
+    # Para OneCycleLR, necesitamos steps_per_epoch
+    if scheduler_config.get('type') == 'onecycle' and train_loader is not None:
+        if 'params' not in scheduler_config:
+            scheduler_config['params'] = {}
+        scheduler_config['params']['steps_per_epoch'] = len(train_loader)
+        scheduler_config['params']['epochs'] = config['training']['epochs']
+        scheduler_config['params']['max_lr'] = config['training']['learning_rate']
+    
+    scheduler = get_scheduler(optimizer, scheduler_config)
+    logger.info(f"Scheduler: {scheduler_config.get('type', 'constant')}")
     
     # Pérdida
     loss_fn = HybridLoss(
@@ -141,8 +148,8 @@ def train(config: dict, device: torch.device):
     # Datos
     train_loader, val_loader = setup_data(config, device)
 
-    # Modelo y optimizador
-    model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device)
+    # Modelo, optimizador y scheduler
+    model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device, train_loader)
 
     # Crear directorio de modelos
     Path(config['data']['models_dir']).mkdir(parents=True, exist_ok=True)
@@ -208,17 +215,15 @@ def train(config: dict, device: torch.device):
                         with torch.no_grad():
                             pred_img = model(input_img)
                         
-                        # Denormalizar input para visualización
-                        def denormalize(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
-                            """Denormaliza tensor de ImageNet stats a [0, 1]"""
-                            mean = torch.tensor(mean).view(3, 1, 1).to(tensor.device)
-                            std = torch.tensor(std).view(3, 1, 1).to(tensor.device)
-                            return torch.clamp(tensor * std + mean, 0, 1)
+                        # Denormalizar de [-1, 1] a [0, 1] para visualización
+                        def denormalize(tensor):
+                            """Denormaliza tensor de [-1, 1] a [0, 1]"""
+                            return torch.clamp((tensor + 1.0) / 2.0, 0, 1)
                         
                         # Preparar imágenes para logging
                         input_vis = denormalize(input_img[0].cpu()).numpy()
-                        gt_vis = gt_img[0].cpu().numpy()  # GT ya está en [0, 1]
-                        pred_vis = pred_img[0].cpu().numpy()
+                        gt_vis = denormalize(gt_img[0].cpu()).numpy()  # GT también está en [-1, 1]
+                        pred_vis = denormalize(pred_img[0].cpu()).numpy()
                         
                         # Convertir CHW a HWC para guardar
                         import numpy as np

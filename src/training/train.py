@@ -111,9 +111,9 @@ def validate(
             total_loss += loss.item()
             num_batches += 1
             
-            # Calcular PSNR
+            # Calcular PSNR (max_val = 2.0 para rango [-1, 1])
             mse = torch.mean((output - target_img) ** 2)
-            psnr = 20 * torch.log10(1.0 / torch.sqrt(mse))
+            psnr = 20 * torch.log10(2.0 / torch.sqrt(mse))
             psnr_values.append(psnr.item())
     
     avg_psnr = sum(psnr_values) / len(psnr_values) if psnr_values else 0
@@ -127,9 +127,10 @@ def validate(
 def compute_metrics(output: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
     """
     Calcula métricas de evaluación: MSE, PSNR, SSIM
+    Asume que output y target están en rango [-1, 1]
     """
     mse = torch.mean((output - target) ** 2)
-    psnr = 20 * torch.log10(1.0 / torch.sqrt(mse))
+    psnr = 20 * torch.log10(2.0 / torch.sqrt(mse))  # max_val = 2.0 para [-1, 1]
     
     # SSIM simplificado
     mean_output = torch.mean(output)

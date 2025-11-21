@@ -107,16 +107,20 @@ class PairedImageDataset(Dataset):
 
         # Convertir a tensores si aún no lo son
         def _to_tensor(img):
+            """Fallback para convertir a tensor si transforms no lo hicieron"""
             if isinstance(img, np.ndarray):
-                img = img.astype(np.float32) / 255.0
+                # Normalizar a [-1, 1]
+                img = img.astype(np.float32)
+                img = (img / 255.0) * 2.0 - 1.0  # [0, 255] → [-1, 1]
                 img = torch.from_numpy(img).permute(2, 0, 1)
                 return img
             if isinstance(img, torch.Tensor):
                 if img.ndim == 3 and img.shape[0] != 3 and img.shape[-1] == 3:
                     img = img.permute(2, 0, 1)
                 img = img.float()
+                # Si está en rango [0, 255], normalizar a [-1, 1]
                 if img.max() > 2.0:
-                    img = img / 255.0
+                    img = (img / 255.0) * 2.0 - 1.0
                 return img
             raise TypeError(f"Tipo de imagen no soportado: {type(img)}")
 
@@ -175,16 +179,17 @@ class VideoFrameDataset(Dataset):
             transformed = self.transform(image=frame)
             frame = transformed['image']
 
-        # Convertir a tensor CHW float en [0,1]
+        # Convertir a tensor CHW float en [-1, 1] (fallback si transform no lo hizo)
         if isinstance(frame, np.ndarray):
-            frame = frame.astype(np.float32) / 255.0
+            frame = frame.astype(np.float32)
+            frame = (frame / 255.0) * 2.0 - 1.0  # [0, 255] → [-1, 1]
             frame = torch.from_numpy(frame).permute(2, 0, 1)
         elif isinstance(frame, torch.Tensor):
             if frame.ndim == 3 and frame.shape[0] != 3 and frame.shape[-1] == 3:
                 frame = frame.permute(2, 0, 1)
             frame = frame.float()
             if frame.max() > 2.0:
-                frame = frame / 255.0
+                frame = (frame / 255.0) * 2.0 - 1.0
         else:
             raise TypeError(f"Tipo de frame no soportado: {type(frame)}")
 

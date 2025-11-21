@@ -120,7 +120,7 @@ class UNet(nn.Module):
         
         # Capa de salida
         self.final = nn.Conv2d(base_channels, out_channels, 1)
-        self.sigmoid = nn.Sigmoid()
+        self.tanh = nn.Tanh()  # Cambiado de Sigmoid a Tanh para rango [-1, 1]
     
     def forward(self, x):
         # Encoder con skip connections
@@ -140,7 +140,7 @@ class UNet(nn.Module):
         
         # Salida final
         output = self.final(up1_out)
-        output = self.sigmoid(output)
+        output = self.tanh(output)  # Salida en rango [-1, 1]
         
         return output
 

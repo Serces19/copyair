@@ -126,7 +126,7 @@ python scripts/train.py --config configs/params.yaml --device cuda
 python scripts/predict.py --model models/best_model.pth --video input.mp4 --extract-frames
 
 # Aplicar modelo y generar video de salida
-python scripts/predict.py --model models/best_model.pth --video input.mp4 --output output.mp4
+python scripts/predict.py --model models/best_model.pth --video data/01_raw/input.mp4 --output output3.mp4 --native-resolution
 ```
 
 ---
