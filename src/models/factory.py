@@ -89,8 +89,9 @@ def get_optimizer(model: nn.Module, config: Dict[str, Any]) -> optim.Optimizer:
         model: Modelo cuyos parámetros se optimizarán
         config: Diccionario de configuración (sección 'training')
     """
-    lr = config.get('learning_rate', 0.001)
-    weight_decay = config.get('weight_decay', 0.0001)
+    # Convertir a float para manejar notación científica de YAML
+    lr = float(config.get('learning_rate', 0.001))
+    weight_decay = float(config.get('weight_decay', 0.0001))
     
     # Support both old config (flat) and new config (nested optimizer dict)
     opt_config = config.get('optimizer', {})
