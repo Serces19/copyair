@@ -247,7 +247,7 @@ class NAFNetHD(nn.Module):
         return x
 
 
-def nafnet_small(in_channels=3, out_channels=3):
+def nafnet_small(in_channels=3, out_channels=3, drop_out_rate=0.1):
     """NAFNet pequeño para pocas imágenes"""
     return NAFNetHD(
         in_channels=in_channels,
@@ -256,11 +256,11 @@ def nafnet_small(in_channels=3, out_channels=3):
         middle_blk_num=6,
         enc_blk_nums=[1, 1, 1, 2],
         dec_blk_nums=[1, 1, 1, 1],
-        drop_out_rate=0.1  # Dropout para evitar overfitting
+        drop_out_rate=drop_out_rate
     )
 
 
-def nafnet_base(in_channels=3, out_channels=3):
+def nafnet_base(in_channels=3, out_channels=3, drop_out_rate=0.05):
     """NAFNet base (recomendado para 5-15 imágenes)"""
     return NAFNetHD(
         in_channels=in_channels,
@@ -269,11 +269,11 @@ def nafnet_base(in_channels=3, out_channels=3):
         middle_blk_num=12,
         enc_blk_nums=[2, 2, 4, 8],
         dec_blk_nums=[2, 2, 2, 2],
-        drop_out_rate=0.05
+        drop_out_rate=drop_out_rate
     )
 
 
-def nafnet_large(in_channels=3, out_channels=3):
+def nafnet_large(in_channels=3, out_channels=3, drop_out_rate=0.0):
     """NAFNet grande (solo si tienes >10 imágenes)"""
     return NAFNetHD(
         in_channels=in_channels,
@@ -282,5 +282,5 @@ def nafnet_large(in_channels=3, out_channels=3):
         middle_blk_num=16,
         enc_blk_nums=[2, 2, 6, 12],
         dec_blk_nums=[2, 2, 2, 2],
-        drop_out_rate=0.0
+        drop_out_rate=drop_out_rate
     )
