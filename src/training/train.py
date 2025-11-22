@@ -58,6 +58,10 @@ def train_epoch(
         
         # Backward pass
         loss.backward()
+        
+        # Gradient Clipping (Crucial para NAFNet/MambaIR)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        
         optimizer.step()
         
         total_loss += loss.item()

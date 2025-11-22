@@ -40,7 +40,7 @@ model:
 training:
   epochs: 5000
   batch_size: 8
-  learning_rate: 1e-3
+  learning_rate: 2e-4  # Reducido para estabilidad (antes 1e-3)
   weight_decay: 1e-4
   
   # Optimizador
@@ -52,8 +52,10 @@ training:
   
   # Learning Rate Scheduler
   scheduler:
-    type: "constant"
-    # params: {}
+    type: "cosine"
+    params:
+      T_max: 5000
+      eta_min: 1e-6
   
   # Validación
   # Si es 0, se entrena con TODO el dataset y se valida con 1 muestra aleatoria (sin augs) por época
