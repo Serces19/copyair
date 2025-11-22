@@ -12,7 +12,7 @@ import torch
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.models import UNet
+from src.models.factory import get_model
 from src.training.inference import predict_on_video, extract_frames_from_video
 from src.data.augmentations import get_inference_transforms
 
@@ -38,20 +38,42 @@ def setup_device(device_name: str) -> torch.device:
     return device
 
 
-def load_model(model_path: str, config: dict, device: torch.device) -> UNet:
-    """Carga modelo preentrenado"""
+def load_model(model_path: str, config: dict, device: torch.device):
+    """Carga modelo preentrenado detectando arquitectura automáticamente"""
     logger.info(f"Cargando modelo desde: {model_path}")
     
-    model = UNet(
-        in_channels=config['model']['in_channels'],
-        out_channels=config['model']['out_channels'],
-        base_channels=config['model']['base_channels']
-    )
-    
+    # Cargar checkpoint
     checkpoint = torch.load(model_path, map_location=device)
-    model.load_state_dict(checkpoint)
+    
+    # Detectar si el checkpoint tiene metadatos (nuevo formato) o solo pesos (formato antiguo)
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        # Nuevo formato: checkpoint con metadatos
+        model_config = checkpoint['model_config']
+        architecture = checkpoint['architecture']
+        state_dict = checkpoint['model_state_dict']
+        
+        logger.info(f"✓ Metadatos detectados en checkpoint")
+        logger.info(f"  Arquitectura: {architecture}")
+        logger.info(f"  Época: {checkpoint.get('epoch', 'N/A')}")
+        logger.info(f"  Val Loss: {checkpoint.get('val_loss', 'N/A'):.4f}" if checkpoint.get('val_loss') else "")
+    else:
+        # Formato antiguo: solo state_dict
+        logger.warning("⚠ Checkpoint sin metadatos (formato antiguo)")
+        logger.warning("  Usando configuración de params.yaml")
+        model_config = config['model']
+        architecture = config['model'].get('architecture', 'unet')
+        state_dict = checkpoint
+        logger.info(f"  Arquitectura asumida: {architecture}")
+    
+    # Crear modelo usando factory con la configuración detectada
+    model = get_model(model_config)
+    
+    # Cargar pesos
+    model.load_state_dict(state_dict)
     model = model.to(device)
     model.eval()
+    
+    logger.info(f"✓ Modelo cargado exitosamente")
     
     return model
 

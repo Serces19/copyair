@@ -122,11 +122,20 @@ python scripts/train.py --config configs/params.yaml --device cuda
 ### 5. Inferencia en Video
 
 ```bash
-# Extraer frames del video
-python scripts/predict.py --model models/best_model.pth --video input.mp4 --extract-frames
-
 # Aplicar modelo y generar video de salida
+# El script detecta automáticamente la arquitectura del modelo desde el checkpoint
 python scripts/predict.py --model models/best_model.pth --video data/01_raw/input.mp4 --output output3.mp4 --native-resolution
+```
+
+**🎯 Detección Automática de Arquitectura**: El script `predict.py` ahora detecta automáticamente la arquitectura del modelo (UNet, NAFNet, ConvNeXt, etc.) desde los metadatos guardados en el checkpoint. No necesitas especificar la arquitectura manualmente.
+
+#### Convertir Modelos Antiguos
+
+Si tienes un modelo entrenado con la versión anterior (sin metadatos), puedes convertirlo:
+
+```bash
+# Convertir checkpoint antiguo al nuevo formato con metadatos
+python scripts/convert_checkpoint.py --model models/old_model.pth --architecture nafnet --output models/new_model.pth
 ```
 
 ---

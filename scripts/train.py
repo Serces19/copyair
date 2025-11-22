@@ -269,10 +269,17 @@ def train(config: dict, device: torch.device):
                     best_val_loss = val_metrics['val_loss']
                     patience_counter = 0
 
-                    # Guardar mejor modelo
+                    # Guardar mejor modelo con metadatos
                     best_path = Path(config['data']['models_dir']) / 'best_model.pth'
-                    torch.save(model.state_dict(), best_path)
-                    logger.info("✓ Mejor modelo guardado")
+                    checkpoint_data = {
+                        'model_state_dict': model.state_dict(),
+                        'model_config': config['model'],
+                        'architecture': config['model'].get('architecture', 'unet'),
+                        'epoch': epoch,
+                        'val_loss': val_metrics['val_loss']
+                    }
+                    torch.save(checkpoint_data, best_path)
+                    logger.info("✓ Mejor modelo guardado (con metadatos)")
 
                     # Registrar checkpoint como artefacto
                     mlflow.log_artifact(str(best_path), artifact_path='checkpoints')
@@ -286,7 +293,14 @@ def train(config: dict, device: torch.device):
                 if (epoch + 1) % config['training']['save_interval'] == 0:
                     last_saved_epoch = epoch
                     ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
-                    torch.save(model.state_dict(), ckpt_path)
+                    checkpoint_data = {
+                        'model_state_dict': model.state_dict(),
+                        'model_config': config['model'],
+                        'architecture': config['model'].get('architecture', 'unet'),
+                        'epoch': epoch,
+                        'val_loss': val_metrics['val_loss']
+                    }
+                    torch.save(checkpoint_data, ckpt_path)
                     mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
 
             logger.info("¡Entrenamiento completado!")

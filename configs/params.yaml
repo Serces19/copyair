@@ -16,7 +16,7 @@ model:
   # - convnext: ConvNeXt U-Net (excelente para few-shot)
   # - convexnet, mambairv2, umamba (otras opciones)
   
-  architecture: "unet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
+  architecture: "nafnet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
   
   # Para NAFNet y ConvNeXt, especificar tamaño:
   size: "base"  # nano, tiny, small, base, large (según arquitectura)
@@ -25,7 +25,7 @@ model:
   in_channels: 3
   out_channels: 3
   base_channels: 64  # Solo para UNet
-  activation: "relu"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
+  activation: "mish"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
   
   # Para ConvNeXt: drop_path_rate (regularización)
   drop_path_rate: 0.1  # 0.05-0.2 recomendado para pocas imágenes
@@ -131,12 +131,12 @@ loss:
 augmentation:
   enabled: true
   img_size: 256
-  horizontal_flip_p: 0.5
+  horizontal_flip_p: 0.2
   vertical_flip_p: 0.2
   rotation_limit: 15
   gaussian_noise_p: 0.2
   gaussian_blur_p: 0.2
-  color_jitter_p: 0.3
+  color_jitter_p: 0.2
 
 # Hardware
 device: "cuda"  # cuda o cpu
