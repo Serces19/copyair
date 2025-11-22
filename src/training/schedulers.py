@@ -115,46 +115,46 @@ def get_scheduler(optimizer: Optimizer, config: Dict[str, Any]):
     elif scheduler_type == 'cosine':
         return CosineAnnealingLR(
             optimizer,
-            T_max=params.get('T_max', 100),
-            eta_min=params.get('eta_min', 0)
+            T_max=int(params.get('T_max', 100)),
+            eta_min=float(params.get('eta_min', 0))
         )
     
     elif scheduler_type == 'step':
         return StepLR(
             optimizer,
-            step_size=params.get('step_size', 30),
-            gamma=params.get('gamma', 0.1)
+            step_size=int(params.get('step_size', 30)),
+            gamma=float(params.get('gamma', 0.1))
         )
     
     elif scheduler_type == 'exponential':
         return ExponentialLR(
             optimizer,
-            gamma=params.get('gamma', 0.95)
+            gamma=float(params.get('gamma', 0.95))
         )
     
     elif scheduler_type == 'plateau':
         return ReduceLROnPlateau(
             optimizer,
             mode=params.get('mode', 'min'),
-            factor=params.get('factor', 0.5),
-            patience=params.get('patience', 10),
+            factor=float(params.get('factor', 0.5)),
+            patience=int(params.get('patience', 10)),
             verbose=params.get('verbose', True)
         )
     
     elif scheduler_type == 'onecycle':
         return OneCycleLR(
             optimizer,
-            max_lr=params.get('max_lr', 0.001),
-            epochs=params.get('epochs', 100),
-            steps_per_epoch=params.get('steps_per_epoch', 100)
+            max_lr=float(params.get('max_lr', 0.001)),
+            epochs=int(params.get('epochs', 100)),
+            steps_per_epoch=int(params.get('steps_per_epoch', 100))
         )
     
     elif scheduler_type == 'cosine_warmup':
         return CosineAnnealingWarmRestarts(
             optimizer,
-            T_0=params.get('T_0', 10),
-            T_mult=params.get('T_mult', 2),
-            eta_min=params.get('eta_min', 0)
+            T_0=int(params.get('T_0', 10)),
+            T_mult=int(params.get('T_mult', 2)),
+            eta_min=float(params.get('eta_min', 0))
         )
     
     else:
