@@ -6,6 +6,23 @@ data:
   gt_dir: "data/03_processed/gt"
   frames_dir: "data/02_interim/dg"
   output_dir: "output_inference"
+  models_dir: "models"
+
+# Parámetros del modelo
+model:
+  # Arquitecturas disponibles:
+  # - unet: U-Net clásica
+  # - nafnet: NAFNet HD (mejor para pocas imágenes)
+  # - convnext: ConvNeXt U-Net (excelente para few-shot)
+  # - mambair: MambaIRv2 (SOTA, global context, eficiente)
+  
+  architecture: "mambair"  # Cambiar a "nafnet", "convnext" o "mambair"
+  
+  # Para NAFNet, ConvNeXt y MambaIR, especificar tamaño:
+  size: "base"  # nano, tiny, small, base, large (según arquitectura)
+  
+  # Parámetros generales
+  in_channels: 3
   out_channels: 3
   base_channels: 64  # Solo para UNet
   activation: "mish"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
@@ -18,14 +35,12 @@ data:
   use_dropout: false     # UNet y NAFNet
   dropout_p: 0.01         # Probabilidad de dropout
   use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
-  
-  # Ejemplos de configuración por caso de uso:
-  
-  # Para 5-8 imágenes (pocas):
-  # architecture: "nafnet"
-  # size: "small"
-  # drop_path_rate: 0.15
-  
+
+# Parámetros de entrenamiento
+training:
+  epochs: 5000
+  batch_size: 8
+  learning_rate: 1e-3
   weight_decay: 1e-4
   
   # Optimizador
@@ -35,56 +50,10 @@ data:
     beta2: 0.999
     momentum: 0.9 # Solo para SGD
   
-  # Learning Rate Scheduler (nuevo sistema flexible!)
-  # Opciones: constant, cosine, step, exponential, plateau, onecycle, cosine_warmup
+  # Learning Rate Scheduler
   scheduler:
-    type: "constant"  # Usar LR constante (sin scheduler)
-    # params: {}  # No necesita parámetros
-  
-  # Ejemplos de otros schedulers (comentados):
-  
-  # Cosine Annealing (reduce LR suavemente)
-  # scheduler:
-  #   type: "cosine"
-  #   params:
-  #     T_max: 500  # Número de épocas
-  #     eta_min: 0  # LR mínimo
-  
-  # Step LR (reduce LR cada N épocas)
-  # scheduler:
-  #   type: "step"
-  #   params:
-  #     step_size: 100  # Reducir cada 100 épocas
-  #     gamma: 0.5      # Multiplicar LR por 0.5
-  
-  # Exponential LR (decay exponencial)
-  # scheduler:
-  #   type: "exponential"
-  #   params:
-  #     gamma: 0.98  # Multiplicar LR por 0.98 cada época
-  
-  # Reduce on Plateau (reduce cuando val_loss se estanca)
-  # scheduler:
-  #   type: "plateau"
-  #   params:
-  #     mode: "min"      # Minimizar val_loss
-  #     factor: 0.5      # Reducir LR a la mitad
-  #     patience: 10     # Esperar 10 épocas sin mejora
-  #     verbose: true
-  
-  # OneCycle LR (para super-convergence)
-  # scheduler:
-  #   type: "onecycle"
-  #   params:
-  #     max_lr: 0.01  # LR máximo (se calcula automáticamente si no se especifica)
-  
-  # Cosine with Warm Restarts
-  # scheduler:
-  #   type: "cosine_warmup"
-  #   params:
-  #     T_0: 50        # Primer restart después de 50 épocas
-  #     T_mult: 2      # Duplicar periodo en cada restart
-  #     eta_min: 0
+    type: "constant"
+    # params: {}
   
   # Validación
   # Si es 0, se entrena con TODO el dataset y se valida con 1 muestra aleatoria (sin augs) por época
