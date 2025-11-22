@@ -83,19 +83,6 @@ class ConvNeXtBlock(nn.Module):
 class ConvNeXtUNet(nn.Module):
     """
     ConvNeXt en arquitectura U-Net para Image-to-Image Translation
-    
-    Optimizado para:
-    - Pocas imágenes (5-15)
-    - Alta resolución variable
-    - Few-shot learning
-    
-    Args:
-        in_channels: Canales de entrada (3 para RGB)
-        out_channels: Canales de salida (3 para RGB)
-        dims: Lista de dimensiones por stage [96, 192, 384, 768]
-        depths: Lista de bloques por stage [3, 3, 9, 3]
-        drop_path_rate: Dropout path rate (0.0 - 0.5)
-        layer_scale_init_value: Valor inicial para layer scale
     """
     def __init__(
         self,
@@ -105,6 +92,7 @@ class ConvNeXtUNet(nn.Module):
         depths=[3, 3, 9, 3],
         drop_path_rate=0.1,
         layer_scale_init_value=1e-6,
+        use_transpose=False
     ):
         super().__init__()
         
@@ -144,10 +132,17 @@ class ConvNeXtUNet(nn.Module):
         
         for i in range(len(dims) - 1, 0, -1):
             # Upsample
-            upsample = nn.Sequential(
-                nn.ConvTranspose2d(dims[i], dims[i-1], kernel_size=2, stride=2),
-                LayerNorm(dims[i-1], eps=1e-6, data_format="channels_first")
-            )
+            if use_transpose:
+                upsample = nn.Sequential(
+                    nn.ConvTranspose2d(dims[i], dims[i-1], kernel_size=2, stride=2),
+                    LayerNorm(dims[i-1], eps=1e-6, data_format="channels_first")
+                )
+            else:
+                upsample = nn.Sequential(
+                    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                    nn.Conv2d(dims[i], dims[i-1], kernel_size=1),
+                    LayerNorm(dims[i-1], eps=1e-6, data_format="channels_first")
+                )
             self.upsample_layers.append(upsample)
             
             # Decoder stage (con skip connection, así que dims[i-1] * 2)
@@ -203,7 +198,7 @@ class ConvNeXtUNet(nn.Module):
         return x
 
 
-def convnext_tiny(in_channels=3, out_channels=3, drop_path_rate=0.1):
+def convnext_tiny(in_channels=3, out_channels=3, drop_path_rate=0.1, use_transpose=False):
     """
     ConvNeXt-Tiny para few-shot learning (5-15 imágenes)
     Parámetros: ~28M
@@ -213,11 +208,12 @@ def convnext_tiny(in_channels=3, out_channels=3, drop_path_rate=0.1):
         out_channels=out_channels,
         dims=[96, 192, 384, 768],
         depths=[3, 3, 9, 3],
-        drop_path_rate=drop_path_rate
+        drop_path_rate=drop_path_rate,
+        use_transpose=use_transpose
     )
 
 
-def convnext_small(in_channels=3, out_channels=3, drop_path_rate=0.15):
+def convnext_small(in_channels=3, out_channels=3, drop_path_rate=0.15, use_transpose=False):
     """
     ConvNeXt-Small
     Parámetros: ~50M
@@ -228,11 +224,12 @@ def convnext_small(in_channels=3, out_channels=3, drop_path_rate=0.15):
         out_channels=out_channels,
         dims=[96, 192, 384, 768],
         depths=[3, 3, 27, 3],
-        drop_path_rate=drop_path_rate
+        drop_path_rate=drop_path_rate,
+        use_transpose=use_transpose
     )
 
 
-def convnext_base(in_channels=3, out_channels=3, drop_path_rate=0.2):
+def convnext_base(in_channels=3, out_channels=3, drop_path_rate=0.2, use_transpose=False):
     """
     ConvNeXt-Base
     Parámetros: ~89M
@@ -243,11 +240,12 @@ def convnext_base(in_channels=3, out_channels=3, drop_path_rate=0.2):
         out_channels=out_channels,
         dims=[128, 256, 512, 1024],
         depths=[3, 3, 27, 3],
-        drop_path_rate=drop_path_rate
+        drop_path_rate=drop_path_rate,
+        use_transpose=use_transpose
     )
 
 
-def convnext_nano(in_channels=3, out_channels=3, drop_path_rate=0.05):
+def convnext_nano(in_channels=3, out_channels=3, drop_path_rate=0.05, use_transpose=False):
     """
     ConvNeXt-Nano (ultra ligero)
     Parámetros: ~15M
@@ -258,5 +256,6 @@ def convnext_nano(in_channels=3, out_channels=3, drop_path_rate=0.05):
         out_channels=out_channels,
         dims=[64, 128, 256, 512],
         depths=[2, 2, 6, 2],
-        drop_path_rate=drop_path_rate
+        drop_path_rate=drop_path_rate,
+        use_transpose=use_transpose
     )

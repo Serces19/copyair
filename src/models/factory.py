@@ -15,21 +15,6 @@ from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_bas
 def get_model(config: Dict[str, Any]) -> nn.Module:
     """
     Crea y retorna el modelo especificado en la configuración.
-    
-    Args:
-        config: Diccionario de configuración (sección 'model')
-        
-    Returns:
-        Modelo instanciado (nn.Module)
-        
-    Arquitecturas disponibles:
-        - unet: U-Net clásica
-        - unet_convnext: U-Net con backbone ConvNeXt
-        - convexnet: ConvexNet
-        - mambairv2: MambaIR v2
-        - umamba: U-Mamba
-        - nafnet: NAFNet HD (especificar size: small/base/large)
-        - convnext: ConvNeXt U-Net (especificar size: nano/tiny/small/base)
     """
     arch = config.get('architecture', 'unet').lower()
     model_type = config.get('type', 'unet').lower() # Fallback for legacy config
@@ -42,10 +27,22 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     out_channels = config.get('out_channels', 3)
     base_channels = config.get('base_channels', 64)
     activation = config.get('activation', 'relu')
-    size = config.get('size', 'base').lower()  # Para NAFNet y ConvNeXt
+    size = config.get('size', 'base').lower()
+    
+    # Nuevos parámetros de configuración
+    use_batchnorm = config.get('use_batchnorm', True)
+    use_dropout = config.get('use_dropout', False)
+    dropout_p = config.get('dropout_p', 0.0)
+    use_transpose = config.get('use_transpose', False)
     
     if arch == 'unet':
-        return UNet(in_channels, out_channels, base_channels, activation)
+        return UNet(
+            in_channels, out_channels, base_channels, activation,
+            use_batchnorm=use_batchnorm,
+            use_dropout=use_dropout,
+            dropout_p=dropout_p,
+            use_transpose=use_transpose
+        )
     elif arch == 'unet_convnext':
         return UNetWithConvNeXt(in_channels, out_channels, base_channels, activation)
     elif arch == 'convexnet':
@@ -55,26 +52,29 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     elif arch == 'umamba':
         return UMamba(in_channels, out_channels, base_channels, activation)
     elif arch == 'nafnet' or arch == 'nafnethd':
-        # NAFNet con diferentes tamaños
+        # NAFNet usa dropout_p como drop_out_rate si use_dropout es True
+        drop_rate = dropout_p if use_dropout else 0.0
+        
         if size == 'small':
-            return nafnet_small(in_channels, out_channels)
+            return nafnet_small(in_channels, out_channels, drop_out_rate=drop_rate)
         elif size == 'base':
-            return nafnet_base(in_channels, out_channels)
+            return nafnet_base(in_channels, out_channels, drop_out_rate=drop_rate)
         elif size == 'large':
-            return nafnet_large(in_channels, out_channels)
+            return nafnet_large(in_channels, out_channels, drop_out_rate=drop_rate)
         else:
             raise ValueError(f"NAFNet size no soportado: {size}. Opciones: small, base, large")
     elif arch == 'convnext':
-        # ConvNeXt con diferentes tamaños
+        # ConvNeXt usa drop_path_rate (stochastic depth)
         drop_path = config.get('drop_path_rate', 0.1)
+        
         if size == 'nano':
-            return convnext_nano(in_channels, out_channels, drop_path)
+            return convnext_nano(in_channels, out_channels, drop_path, use_transpose=use_transpose)
         elif size == 'tiny':
-            return convnext_tiny(in_channels, out_channels, drop_path)
+            return convnext_tiny(in_channels, out_channels, drop_path, use_transpose=use_transpose)
         elif size == 'small':
-            return convnext_small(in_channels, out_channels, drop_path)
+            return convnext_small(in_channels, out_channels, drop_path, use_transpose=use_transpose)
         elif size == 'base':
-            return convnext_base(in_channels, out_channels, drop_path)
+            return convnext_base(in_channels, out_channels, drop_path, use_transpose=use_transpose)
         else:
             raise ValueError(f"ConvNeXt size no soportado: {size}. Opciones: nano, tiny, small, base")
     else:

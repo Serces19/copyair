@@ -16,7 +16,7 @@ model:
   # - convnext: ConvNeXt U-Net (excelente para few-shot)
   # - convexnet, mambairv2, umamba (otras opciones)
   
-  architecture: "nafnet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
+  architecture: "unet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
   
   # Para NAFNet y ConvNeXt, especificar tamaño:
   size: "base"  # nano, tiny, small, base, large (según arquitectura)
@@ -29,6 +29,12 @@ model:
   
   # Para ConvNeXt: drop_path_rate (regularización)
   drop_path_rate: 0.01  # 0.05-0.2 recomendado para pocas imágenes
+  
+  # Opciones avanzadas de arquitectura (UNet, ConvNeXt, NAFNet)
+  use_batchnorm: true    # Solo UNet
+  use_dropout: false     # UNet y NAFNet
+  dropout_p: 0.01         # Probabilidad de dropout
+  use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
   
   # Ejemplos de configuración por caso de uso:
   

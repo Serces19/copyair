@@ -25,15 +25,24 @@ def get_activation(activation_name: str) -> nn.Module:
 
 
 class ConvBlock(nn.Module):
-    """Bloque convolucional: Conv2d + BatchNorm + Activation"""
+    """Bloque convolucional: Conv2d + [BatchNorm] + Activation + [Dropout]"""
     
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3, activation: str = "relu"):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3, activation: str = "relu", 
+                 use_batchnorm: bool = True, use_dropout: bool = False, dropout_p: float = 0.0):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size, padding=1),
-            nn.BatchNorm2d(out_channels),
-            get_activation(activation)
-        )
+        layers = [
+            nn.Conv2d(in_channels, out_channels, kernel_size, padding=1)
+        ]
+        
+        if use_batchnorm:
+            layers.append(nn.BatchNorm2d(out_channels))
+            
+        layers.append(get_activation(activation))
+        
+        if use_dropout:
+            layers.append(nn.Dropout(dropout_p))
+            
+        self.conv = nn.Sequential(*layers)
     
     def forward(self, x):
         return self.conv(x)
@@ -42,11 +51,14 @@ class ConvBlock(nn.Module):
 class DownBlock(nn.Module):
     """Bloque descendente: 2x Conv + MaxPool"""
     
-    def __init__(self, in_channels: int, out_channels: int, activation: str = "relu"):
+    def __init__(self, in_channels: int, out_channels: int, activation: str = "relu",
+                 use_batchnorm: bool = True, use_dropout: bool = False, dropout_p: float = 0.0):
         super().__init__()
         self.convs = nn.Sequential(
-            ConvBlock(in_channels, out_channels, activation=activation),
-            ConvBlock(out_channels, out_channels, activation=activation)
+            ConvBlock(in_channels, out_channels, activation=activation, 
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p),
+            ConvBlock(out_channels, out_channels, activation=activation,
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
         )
         self.pool = nn.MaxPool2d(2, 2)
     
@@ -59,16 +71,37 @@ class DownBlock(nn.Module):
 class UpBlock(nn.Module):
     """Bloque ascendente: Upsample + Concatenate + 2x Conv"""
     
-    def __init__(self, in_channels: int, out_channels: int, activation: str = "relu"):
+    def __init__(self, in_channels: int, out_channels: int, activation: str = "relu",
+                 use_transpose: bool = False, use_batchnorm: bool = True, 
+                 use_dropout: bool = False, dropout_p: float = 0.0):
         super().__init__()
-        self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, 2, 2)
+        
+        if use_transpose:
+            self.up = nn.ConvTranspose2d(in_channels, in_channels // 2, 2, 2)
+        else:
+            self.up = nn.Sequential(
+                nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True),
+                nn.Conv2d(in_channels, in_channels // 2, 1)
+            )
+            
         self.convs = nn.Sequential(
-            ConvBlock(in_channels, out_channels, activation=activation),
-            ConvBlock(out_channels, out_channels, activation=activation)
+            ConvBlock(in_channels, out_channels, activation=activation,
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p),
+            ConvBlock(out_channels, out_channels, activation=activation,
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
         )
     
     def forward(self, x, skip):
         x = self.up(x)
+        
+        # Manejo de padding si las dimensiones no coinciden exactamente (por impares)
+        if x.shape != skip.shape:
+            diffY = skip.size()[2] - x.size()[2]
+            diffX = skip.size()[3] - x.size()[3]
+            import torch.nn.functional as F
+            x = F.pad(x, [diffX // 2, diffX - diffX // 2,
+                          diffY // 2, diffY - diffY // 2])
+                          
         x = torch.cat([x, skip], dim=1)
         x = self.convs(x)
         return x
@@ -77,11 +110,6 @@ class UpBlock(nn.Module):
 class UNet(nn.Module):
     """
     U-Net modificada con conexiones de salto y activación configurable.
-    
-    Arquitectura:
-    - Encoder: 4 capas de downsampling
-    - Bottleneck: 2 bloques convolucionales
-    - Decoder: 4 capas de upsampling con skip connections
     """
     
     def __init__(
@@ -89,34 +117,41 @@ class UNet(nn.Module):
         in_channels: int = 3, 
         out_channels: int = 3,
         base_channels: int = 64,
-        activation: str = "relu"
+        activation: str = "relu",
+        use_batchnorm: bool = True,
+        use_dropout: bool = False,
+        dropout_p: float = 0.0,
+        use_transpose: bool = False
     ):
-        """
-        Args:
-            in_channels: Número de canales entrada (3 para RGB)
-            out_channels: Número de canales salida (3 para RGB)
-            base_channels: Número de canales en la primera capa
-            activation: Función de activación (relu, gelu, mish, etc.)
-        """
         super().__init__()
         
         # Encoder
-        self.down1 = DownBlock(in_channels, base_channels, activation=activation)
-        self.down2 = DownBlock(base_channels, base_channels * 2, activation=activation)
-        self.down3 = DownBlock(base_channels * 2, base_channels * 4, activation=activation)
-        self.down4 = DownBlock(base_channels * 4, base_channels * 8, activation=activation)
+        self.down1 = DownBlock(in_channels, base_channels, activation=activation,
+                               use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.down2 = DownBlock(base_channels, base_channels * 2, activation=activation,
+                               use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.down3 = DownBlock(base_channels * 2, base_channels * 4, activation=activation,
+                               use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.down4 = DownBlock(base_channels * 4, base_channels * 8, activation=activation,
+                               use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
         
         # Bottleneck
         self.bottleneck = nn.Sequential(
-            ConvBlock(base_channels * 8, base_channels * 16, activation=activation),
-            ConvBlock(base_channels * 16, base_channels * 16, activation=activation)
+            ConvBlock(base_channels * 8, base_channels * 16, activation=activation,
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p),
+            ConvBlock(base_channels * 16, base_channels * 16, activation=activation,
+                      use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
         )
         
         # Decoder
-        self.up4 = UpBlock(base_channels * 16, base_channels * 8, activation=activation)
-        self.up3 = UpBlock(base_channels * 8, base_channels * 4, activation=activation)
-        self.up2 = UpBlock(base_channels * 4, base_channels * 2, activation=activation)
-        self.up1 = UpBlock(base_channels * 2, base_channels, activation=activation)
+        self.up4 = UpBlock(base_channels * 16, base_channels * 8, activation=activation, use_transpose=use_transpose,
+                           use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.up3 = UpBlock(base_channels * 8, base_channels * 4, activation=activation, use_transpose=use_transpose,
+                           use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.up2 = UpBlock(base_channels * 4, base_channels * 2, activation=activation, use_transpose=use_transpose,
+                           use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
+        self.up1 = UpBlock(base_channels * 2, base_channels, activation=activation, use_transpose=use_transpose,
+                           use_batchnorm=use_batchnorm, use_dropout=use_dropout, dropout_p=dropout_p)
         
         # Capa de salida
         self.final = nn.Conv2d(base_channels, out_channels, 1)
