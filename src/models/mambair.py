@@ -131,7 +131,7 @@ class SS2D(nn.Module):
         # Usamos cumsum con decay para simular el "olvido" del estado.
         
         # Forward scan
-        decay = torch.sigmoid(self.dt_proj(torch.zeros(1, device=x.device))) # Dummy decay
+        decay = torch.sigmoid(self.dt_proj(torch.zeros(1, self.d_state, device=x.device))) # Dummy decay
         # Aproximación muy burda pero vectorizada: Global Average Pooling + Residual
         # Para ser fiel a Mamba, deberíamos hacer el scan real.
         # Dado que es PyTorch puro, usaremos AvgPool global como fallback eficiente
