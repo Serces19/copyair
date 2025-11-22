@@ -67,37 +67,103 @@ def setup_data(config: dict, device: torch.device):
         augment=False
     )
     
-    # Dataset
-    dataset = PairedImageDataset(
-        input_dir=config['data']['input_dir'],
-        gt_dir=config['data']['gt_dir'],
-        transform=train_transform
-    )
-    
-    # Split train/val
-    val_size = int(len(dataset) * config['training']['val_split'])
-    train_size = len(dataset) - val_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
-    # Dataloaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config['training']['batch_size'],
-        shuffle=True,
-        num_workers=config['num_workers'],
-        pin_memory=config['pin_memory']
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config['training']['batch_size'],
-        shuffle=False,
-        num_workers=config['num_workers'],
-        pin_memory=config['pin_memory']
-    )
-    
-    logger.info(f"Dataset: {len(dataset)} imágenes")
-    logger.info(f"Train: {train_size}, Val: {val_size}")
+    # Si val_split es 0, usamos TODO para entrenar y validamos con una muestra aleatoria del mismo set (sin augs)
+    if config['training']['val_split'] == 0:
+        logger.info("Modo: Entrenar con TODO el dataset (sin split de validación estático)")
+        
+        # Dataset de entrenamiento (Todo el data, con aumentaciones)
+        train_dataset = PairedImageDataset(
+            input_dir=config['data']['input_dir'],
+            gt_dir=config['data']['gt_dir'],
+            transform=train_transform
+        )
+        
+        # Dataset de validación (Todo el data, SIN aumentaciones)
+        # Usamos esto para chequear overfitting/reconstrucción
+        full_val_dataset = PairedImageDataset(
+            input_dir=config['data']['input_dir'],
+            gt_dir=config['data']['gt_dir'],
+            transform=val_transform
+        )
+        
+        # Para cumplir "un frame aleatorio por epoch", usamos un Sampler o simplemente shuffle=True
+        # y limitamos el loop de validación, o creamos un loader que solo devuelva 1 batch.
+        # Aquí usamos RandomSampler con replacement=True y num_samples=1 para sacar 1 imagen aleatoria.
+        from torch.utils.data import RandomSampler
+        val_sampler = RandomSampler(full_val_dataset, replacement=True, num_samples=1)
+        
+        val_loader = DataLoader(
+            full_val_dataset,
+            batch_size=1, # 1 frame como pidió el usuario
+            sampler=val_sampler,
+            num_workers=config['num_workers'],
+            pin_memory=config['pin_memory']
+        )
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config['training']['batch_size'],
+            shuffle=True,
+            num_workers=config['num_workers'],
+            pin_memory=config['pin_memory']
+        )
+        
+        logger.info(f"Dataset Total: {len(train_dataset)} imágenes")
+        logger.info("Validación: 1 imagen aleatoria del set de entrenamiento (sin augs) por época.")
+        
+    else:
+        # Modo clásico: Split Train/Val
+        # Cargamos dataset base para obtener índices
+        base_dataset = PairedImageDataset(
+            input_dir=config['data']['input_dir'],
+            gt_dir=config['data']['gt_dir'],
+            transform=None # No transform yet
+        )
+        
+        val_size = int(len(base_dataset) * config['training']['val_split'])
+        train_size = len(base_dataset) - val_size
+        
+        # Split de índices
+        train_subset, val_subset = random_split(base_dataset, [train_size, val_size])
+        
+        # Crear datasets finales con las transformaciones correctas
+        # Nota: PairedImageDataset carga archivos basado en directorio, no índices directos fácilmente si no modificamos la clase.
+        # Workaround: Instanciar dos datasets completos y usar Subset con los índices generados.
+        
+        full_train_ds = PairedImageDataset(
+            input_dir=config['data']['input_dir'],
+            gt_dir=config['data']['gt_dir'],
+            transform=train_transform
+        )
+        
+        full_val_ds = PairedImageDataset(
+            input_dir=config['data']['input_dir'],
+            gt_dir=config['data']['gt_dir'],
+            transform=val_transform
+        )
+        
+        # Aplicar los índices del split
+        train_dataset = torch.utils.data.Subset(full_train_ds, train_subset.indices)
+        val_dataset = torch.utils.data.Subset(full_val_ds, val_subset.indices)
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config['training']['batch_size'],
+            shuffle=True,
+            num_workers=config['num_workers'],
+            pin_memory=config['pin_memory']
+        )
+        
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=config['training']['batch_size'],
+            shuffle=False,
+            num_workers=config['num_workers'],
+            pin_memory=config['pin_memory']
+        )
+        
+        logger.info(f"Dataset Total: {len(base_dataset)} imágenes")
+        logger.info(f"Train: {train_size}, Val: {val_size}")
     
     return train_loader, val_loader
 

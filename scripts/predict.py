@@ -78,7 +78,7 @@ def load_model(model_path: str, config: dict, device: torch.device):
     return model
 
 
-def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False):
+def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv'):
     """Predice en video"""
     
     # Cargar modelo
@@ -97,7 +97,8 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         device,
         transform=transform,
         target_fps=config['inference']['target_fps'],
-        native_resolution=native_resolution
+        native_resolution=native_resolution,
+        backend=backend
     )
     
     logger.info(f"✓ Video generado: {output_path}")
@@ -121,6 +122,7 @@ def main():
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo')
     parser.add_argument('--extract-frames', action='store_true', help='Solo extraer frames')
     parser.add_argument('--native-resolution', action='store_true', help='Usar resolución nativa del video (sin resize)')
+    parser.add_argument('--backend', type=str, default='opencv', choices=['opencv', 'ffmpeg'], help='Backend de video (opencv: seguro color, ffmpeg: mejor compresión)')
     
     args = parser.parse_args()
     
@@ -134,7 +136,7 @@ def main():
     if args.extract_frames and args.video:
         extract_frames(args.video, config['data']['frames_dir'])
     elif args.video and args.output:
-        predict(config, args.model, args.video, args.output, device, args.native_resolution)
+        predict(config, args.model, args.video, args.output, device, args.native_resolution, args.backend)
     else:
         parser.print_help()
 

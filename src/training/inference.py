@@ -66,7 +66,8 @@ def predict_on_video(
     device: torch.device,
     transform=None,
     target_fps: int = 30,
-    native_resolution: bool = False
+    native_resolution: bool = False,
+    backend: str = 'opencv'
 ) -> str:
     """
     Aplica el modelo a todos los frames de un video
@@ -79,6 +80,7 @@ def predict_on_video(
         transform: Transformaciones a aplicar (albumentations)
         target_fps: FPS del video de salida
         native_resolution: Si es True, mantiene la resolución original (padding si es necesario)
+        backend: 'opencv' (seguro para color) o 'ffmpeg' (mejor compresión)
     
     Returns:
         Ruta del video generado
@@ -99,44 +101,45 @@ def predict_on_video(
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    # Usar FFmpeg para escribir el video con color space correcto
-    ffmpeg_cmd = [
-        'ffmpeg',
-        '-y',  # Sobrescribir sin preguntar
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-s', f'{width}x{height}',
-        '-pix_fmt', 'bgr24',
-        '-r', str(fps),
-        '-i', '-',  # Input desde stdin
-        '-an',  # Sin audio
-        '-vcodec', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '18',  # Calidad alta
-        '-preset', 'medium',
-        '-color_range', 'pc',  # Full range (0-255) en lugar de tv (16-235)
-        '-colorspace', 'bt709',
-        '-color_primaries', 'bt709',
-        '-color_trc', 'iec61966-2-1',  # sRGB gamma
-        output_path
-    ]
+    use_ffmpeg = False
     
-    # Verificar que ffmpeg esté disponible
-    if shutil.which('ffmpeg') is None:
-        logger.warning("FFmpeg no encontrado, usando cv2.VideoWriter (puede haber problemas de color)")
-        # Fallback a cv2.VideoWriter
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        use_ffmpeg = False
-    else:
+    # Configurar backend
+    if backend == 'ffmpeg' and shutil.which('ffmpeg') is not None:
+        # Usar FFmpeg para escribir el video
+        # NOTA: Hemos eliminado los flags forzados de color (-color_range, -colorspace, etc.)
+        # para evitar cambios de color no deseados. Dejamos que FFmpeg decida o copie lo básico.
+        ffmpeg_cmd = [
+            'ffmpeg',
+            '-y',  # Sobrescribir sin preguntar
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-s', f'{width}x{height}',
+            '-pix_fmt', 'bgr24',
+            '-r', str(fps),
+            '-i', '-',  # Input desde stdin
+            '-an',  # Sin audio
+            '-vcodec', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-crf', '18',  # Calidad alta
+            '-preset', 'medium',
+            # Flags de color eliminados para evitar shifts
+            output_path
+        ]
+        
         try:
             process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             use_ffmpeg = True
+            logger.info("Usando backend: FFmpeg (sin metadatos de color forzados)")
         except Exception as e:
-            logger.warning(f"Error al iniciar FFmpeg: {e}, usando cv2.VideoWriter")
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+            logger.warning(f"Error al iniciar FFmpeg: {e}, cayendo a OpenCV")
             use_ffmpeg = False
+    
+    if not use_ffmpeg:
+        # Backend OpenCV (Default y Fallback)
+        # Es el más seguro para consistencia de color pixel a pixel
+        logger.info("Usando backend: OpenCV (mp4v)")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
     model.eval()
     frame_count = 0
