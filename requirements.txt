@@ -9,6 +9,8 @@ pyyaml
 tqdm
 pytest
 scikit-image
+matplotlib
+scikit-learn
 
 # MLOps (opcional)
 mlflow

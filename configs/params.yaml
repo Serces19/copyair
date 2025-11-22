@@ -49,7 +49,7 @@ model:
 
 # Parámetros de entrenamiento
 training:
-  epochs: 500
+  epochs: 5000
   batch_size: 8
   learning_rate: 1e-3
   weight_decay: 1e-4
@@ -117,7 +117,7 @@ training:
   
   # Checkpoint
   save_interval: 250
-  early_stopping_patience: 300
+  early_stopping_patience: 500
 
 # Parámetros de pérdida
 loss:
