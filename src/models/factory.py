@@ -11,6 +11,7 @@ from .unet import UNet, UNetWithConvNeXt
 from .architectures import ConvexNet, MambaIRv2, UMamba, NAFNetHD
 from .nafnet import nafnet_small, nafnet_base, nafnet_large
 from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base
+from .mambair import mambair_tiny, mambair_base, mambair_large
 
 def get_model(config: Dict[str, Any]) -> nn.Module:
     """
@@ -77,6 +78,15 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
             return convnext_base(in_channels, out_channels, drop_path, use_transpose=use_transpose)
         else:
             raise ValueError(f"ConvNeXt size no soportado: {size}. Opciones: nano, tiny, small, base")
+    elif arch == 'mambair':
+        if size == 'tiny':
+            return mambair_tiny(in_channels, out_channels)
+        elif size == 'base':
+            return mambair_base(in_channels, out_channels)
+        elif size == 'large':
+            return mambair_large(in_channels, out_channels)
+        else:
+            raise ValueError(f"MambaIR size no soportado: {size}. Opciones: tiny, base, large")
     else:
         raise ValueError(f"Arquitectura no soportada: {arch}")
 

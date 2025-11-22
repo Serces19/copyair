@@ -6,23 +6,6 @@ data:
   gt_dir: "data/03_processed/gt"
   frames_dir: "data/02_interim/dg"
   output_dir: "output_inference"
-  models_dir: "models"
-
-# Parámetros del modelo
-model:
-  # Arquitecturas disponibles:
-  # - unet: U-Net clásica
-  # - nafnet: NAFNet HD (mejor para pocas imágenes)
-  # - convnext: ConvNeXt U-Net (excelente para few-shot)
-  # - convexnet, mambairv2, umamba (otras opciones)
-  
-  architecture: "unet"  # Cambiar a "nafnet" o "convnext" para nuevas arquitecturas
-  
-  # Para NAFNet y ConvNeXt, especificar tamaño:
-  size: "base"  # nano, tiny, small, base, large (según arquitectura)
-  
-  # Parámetros generales
-  in_channels: 3
   out_channels: 3
   base_channels: 64  # Solo para UNet
   activation: "mish"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
@@ -43,21 +26,6 @@ model:
   # size: "small"
   # drop_path_rate: 0.15
   
-  # Para 8-12 imágenes (medio):
-  # architecture: "convnext"
-  # size: "nano"
-  # drop_path_rate: 0.1
-  
-  # Para 12-15 imágenes (más datos):
-  # architecture: "nafnet"
-  # size: "base"
-  # drop_path_rate: 0.05
-
-# Parámetros de entrenamiento
-training:
-  epochs: 5000
-  batch_size: 8
-  learning_rate: 1e-3
   weight_decay: 1e-4
   
   # Optimizador
