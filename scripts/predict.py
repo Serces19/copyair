@@ -85,9 +85,9 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
     model = load_model(model_path, config, device)
     
     # Transformaciones
-    # Si es native_resolution, el transform se usa solo para normalización dentro de predict_on_video
-    # Si no, se usa para resize + normalización
-    transform = get_inference_transforms(config['augmentation']['img_size'])
+    # Si native_resolution es True, NO redimensionamos (resize=False)
+    should_resize = not native_resolution
+    transform = get_inference_transforms(config['augmentation']['img_size'], resize=should_resize)
     
     # Predicción
     predict_on_video(

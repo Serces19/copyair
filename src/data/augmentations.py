@@ -69,10 +69,20 @@ def get_transforms(
     }
 
 
-def get_inference_transforms(img_size: int = 256) -> A.Compose:
-    """Transformaciones para inferencia (solo input) - Normalización a [-1, 1]"""
-    return A.Compose([
-        A.Resize(img_size, img_size),
+def get_inference_transforms(img_size: int = 256, resize: bool = True) -> A.Compose:
+    """
+    Transformaciones para inferencia (solo input) - Normalización a [-1, 1]
+    
+    Args:
+        img_size: Tamaño destino si resize=True
+        resize: Si es False, NO redimensiona (útil para inferencia en resolución nativa)
+    """
+    transforms_list = []
+    
+    if resize:
+        transforms_list.append(A.Resize(img_size, img_size))
+        
+    transforms_list.extend([
         A.Normalize(
             mean=[0.5, 0.5, 0.5],
             std=[0.5, 0.5, 0.5],
@@ -80,3 +90,5 @@ def get_inference_transforms(img_size: int = 256) -> A.Compose:
         ),
         ToTensorV2(),
     ])
+    
+    return A.Compose(transforms_list)
