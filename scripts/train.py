@@ -218,6 +218,8 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
         lambda_ssim=config['loss']['lambda_ssim'],
         lambda_perceptual=config['loss']['lambda_perceptual'],
         lambda_laplacian=config['loss'].get('lambda_laplacian', 0.05),
+        lambda_ffl=config['loss'].get('lambda_ffl', 0.0),
+        lambda_dreamsim=config['loss'].get('lambda_dreamsim', 0.0),
         device=str(device)
     )
     loss_fn = loss_fn.to(device)

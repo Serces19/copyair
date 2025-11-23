@@ -69,10 +69,12 @@ training:
 # Parámetros de pérdida
 loss:
   type: "hybrid"  # l1, ssim, hybrid
-  lambda_l1: 0.4
-  lambda_ssim: 0.1
-  lambda_perceptual: 0.3
-  lambda_laplacian: 0.2
+  lambda_l1: 0.0
+  lambda_ssim: 0.0
+  lambda_perceptual: 0.7
+  lambda_laplacian: 0.0
+  lambda_ffl: 0.1      # Focal Frequency Loss (Detalle fino)
+  lambda_dreamsim: 0.2 # DreamSim Loss (Coherencia semántica)
 
 
 # Masked Loss (Entrenamiento Ponderado)

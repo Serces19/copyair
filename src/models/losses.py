@@ -7,6 +7,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+try:
+    import dreamsim
+except ImportError:
+    dreamsim = None
 
 
 class L1Loss(nn.Module):
@@ -119,6 +123,40 @@ class PSNRLoss(nn.Module):
         return psnr
 
 
+class FocalFrequencyLoss(nn.Module):
+    """
+    Convierte imágenes a frecuencia y compara sus espectros.
+    Ideal para recuperar texturas finas y poros.
+    """
+    def __init__(self, loss_weight=1.0, alpha=1.0):
+        super().__init__()
+        self.loss_weight = loss_weight
+        self.alpha = alpha # Factor de enfoque (cuánto castigar las frec. difíciles)
+
+    def forward(self, pred, target):
+        # 1. Transformada de Fourier 2D (FFT)
+        # RFFT2 es para entradas reales (imágenes)
+        pred_freq = torch.fft.rfft2(pred, norm='ortho')
+        target_freq = torch.fft.rfft2(target, norm='ortho')
+
+        # 2. Extraer Magnitud (Amplitud del espectro)
+        pred_mag = torch.abs(pred_freq)
+        target_mag = torch.abs(target_freq)
+
+        # 3. Calcular la diferencia logarítmica (mejor estabilidad numérica)
+        # Se suma un epsilon pequeño para evitar log(0)
+        diff = torch.abs(pred_mag - target_mag) ** 2
+        
+        # 4. Focal Weighting (Matriz dinámica de pesos)
+        # Las frecuencias donde el error es grande reciben más peso
+        weight = diff / (diff.mean() + 1e-8) # Normalización
+        weight = weight ** self.alpha # Enfoque
+
+        # 5. Pérdida final ponderada
+        loss = (diff * weight).mean()
+        return loss * self.loss_weight
+
+
 class HybridLoss(nn.Module):
     """
     Combinación de múltiples pérdidas para mejores resultados
@@ -132,6 +170,8 @@ class HybridLoss(nn.Module):
         lambda_ssim: float = 0.2,
         lambda_perceptual: float = 0.15,
         lambda_laplacian: float = 0.05,
+        lambda_ffl: float = 0.0,
+        lambda_dreamsim: float = 0.0,
         device: str = 'cuda'
     ):
         super().__init__()
@@ -139,11 +179,32 @@ class HybridLoss(nn.Module):
         self.lambda_ssim = lambda_ssim
         self.lambda_perceptual = lambda_perceptual
         self.lambda_laplacian = lambda_laplacian
+        self.lambda_ffl = lambda_ffl
+        self.lambda_dreamsim = lambda_dreamsim
         
         self.l1_loss = L1Loss()
         self.ssim_loss = SSIMLoss()
         self.perceptual_loss = PerceptualLoss(device=device)
         self.laplacian_loss = LaplacianPyramidLoss(device=device)
+        
+        # Inicializar FFL si se usa
+        if self.lambda_ffl > 0:
+            self.ffl_loss = FocalFrequencyLoss(loss_weight=1.0, alpha=1.0).to(device)
+        else:
+            self.ffl_loss = None
+            
+        # Inicializar DreamSim si se usa
+        if self.lambda_dreamsim > 0:
+            if dreamsim is None:
+                print("⚠ DreamSim no está instalado. Ignorando pérdida DreamSim.")
+                self.dreamsim_loss = None
+                self.lambda_dreamsim = 0
+            else:
+                print("Cargando DreamSim (OpenCLIP-ViT)...")
+                self.dreamsim_loss, _ = dreamsim.pretrained_dreamsim(dreamsim_type='open_clip_vitb32')
+                self.dreamsim_loss = self.dreamsim_loss.to(device).eval()
+        else:
+            self.dreamsim_loss = None
     
     def forward(self, pred, target, mask=None):
         # L1 Loss (Masked or Standard)
@@ -167,10 +228,27 @@ class HybridLoss(nn.Module):
             self.lambda_laplacian * laplacian
         )
         
-        return {
+        metrics = {
             'total': total_loss,
             'l1': l1,
             'ssim': ssim,
             'perceptual': perceptual,
             'laplacian': laplacian
         }
+        
+        # Agregar FFL si está habilitado
+        if self.ffl_loss is not None:
+            ffl = self.ffl_loss(pred, target)
+            total_loss += self.lambda_ffl * ffl
+            metrics['ffl'] = ffl
+            
+        # Agregar DreamSim si está habilitado
+        if self.dreamsim_loss is not None:
+            # DreamSim espera RGB estándar, nuestros tensores están en [-1, 1]
+            # DreamSim maneja normalización interna, pero aseguramos float
+            dream = self.dreamsim_loss(pred, target)
+            total_loss += self.lambda_dreamsim * dream
+            metrics['dreamsim'] = dream
+            metrics['total'] = total_loss # Actualizar total
+            
+        return metrics
