@@ -201,7 +201,8 @@ class HybridLoss(nn.Module):
                 self.lambda_dreamsim = 0
             else:
                 print("Cargando DreamSim (OpenCLIP-ViT)...")
-                self.dreamsim_loss, _ = dreamsim.pretrained_dreamsim(dreamsim_type='open_clip_vitb32')
+                # La API correcta es dreamsim(pretrained=True)
+                self.dreamsim_loss, _ = dreamsim.dreamsim(pretrained=True, dreamsim_type='open_clip_vitb32')
                 self.dreamsim_loss = self.dreamsim_loss.to(device).eval()
         else:
             self.dreamsim_loss = None

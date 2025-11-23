@@ -124,7 +124,7 @@ python scripts/train.py --config configs/params.yaml --device cuda
 ```bash
 # Aplicar modelo y generar video de salida
 # El script detecta automáticamente la arquitectura del modelo desde el checkpoint
-python scripts/predict.py --model models/best_model.pth --video data/01_raw/input.mov --output output5.mp4 --native-resolution
+python scripts/predict.py --model models/best_model_unet.pth --video data/01_raw/input.mov --output output6.mp4 --native-resolution --lossless
 ```
 
 **🎯 Detección Automática de Arquitectura**: El script `predict.py` ahora detecta automáticamente la arquitectura del modelo (UNet, NAFNet, ConvNeXt, etc.) desde los metadatos guardados en el checkpoint. No necesitas especificar la arquitectura manualmente.
