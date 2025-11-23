@@ -271,6 +271,12 @@ def train(config: dict, device: torch.device):
             mlflow.log_param('training.learning_rate', config['training'].get('learning_rate'))
             mlflow.log_param('training.optimizer', config['training'].get('optimizer', {}).get('type', 'adam'))
             
+            mlflow.log_param('loss.lambda_l1', config['loss'].get('lambda_l1'))
+            mlflow.log_param('loss.lambda_ssim', config['loss'].get('lambda_ssim'))
+            mlflow.log_param('loss.lambda_perceptual', config['loss'].get('lambda_perceptual'))
+            mlflow.log_param('loss.lambda_laplacian', config['loss'].get('lambda_laplacian'))
+            mlflow.log_param('loss.lambda_ffl', config['loss'].get('lambda_ffl'))
+            mlflow.log_param('loss.lambda_dreamsim', config['loss'].get('lambda_dreamsim'))
 
             mlflow.log_param('data.input_dir', config['data'].get('input_dir'))
 
@@ -284,15 +290,15 @@ def train(config: dict, device: torch.device):
                 )
 
                 # Registrar métricas de entrenamiento en MLflow
-                for k, v in train_metrics.items():
-                    mlflow.log_metric(f'train/{k}', v, step=epoch)
+                # Solo registramos la pérdida total para evitar ruido
+                mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
                 if epoch == 0 or epoch % val_interval == 0:
                     val_metrics = validate(model, val_loader, loss_fn, device)
-                    for k, v in val_metrics.items():
-                        mlflow.log_metric(k, v, step=epoch)
+                    # Solo registramos la pérdida total
+                    mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                     logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
                 else:
                     val_metrics = None

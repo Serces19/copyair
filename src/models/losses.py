@@ -212,43 +212,45 @@ class HybridLoss(nn.Module):
             self.dreamsim_loss = None
     
     def forward(self, pred, target, mask=None):
+        total_loss = 0.0
+        metrics = {}
+
         # L1 Loss (Masked or Standard)
-        if mask is not None:
-            # Masked L1: Enfocarse en áreas de interés
-            l1_map = torch.abs(pred - target)
-            masked_l1 = l1_map * mask
-            # Normalizar por la suma de la máscara para mantener la escala
-            l1 = masked_l1.sum() / (mask.sum() + 1e-6)
-        else:
-            l1 = self.l1_loss(pred, target)
+        if self.lambda_l1 > 0:
+            if mask is not None:
+                # Masked L1: Enfocarse en áreas de interés
+                l1_map = torch.abs(pred - target)
+                masked_l1 = l1_map * mask
+                # Normalizar por la suma de la máscara para mantener la escala
+                l1 = masked_l1.sum() / (mask.sum() + 1e-6)
+            else:
+                l1 = self.l1_loss(pred, target)
+            total_loss += self.lambda_l1 * l1
+            metrics['l1'] = l1
             
-        ssim = self.ssim_loss(pred, target)
-        perceptual = self.perceptual_loss(pred, target)
-        laplacian = self.laplacian_loss(pred, target)
-        
-        total_loss = (
-            self.lambda_l1 * l1 +
-            self.lambda_ssim * ssim +
-            self.lambda_perceptual * perceptual +
-            self.lambda_laplacian * laplacian
-        )
-        
-        metrics = {
-            'total': total_loss,
-            'l1': l1,
-            'ssim': ssim,
-            'perceptual': perceptual,
-            'laplacian': laplacian
-        }
+        if self.lambda_ssim > 0:
+            ssim = self.ssim_loss(pred, target)
+            total_loss += self.lambda_ssim * ssim
+            metrics['ssim'] = ssim
+
+        if self.lambda_perceptual > 0:
+            perceptual = self.perceptual_loss(pred, target)
+            total_loss += self.lambda_perceptual * perceptual
+            metrics['perceptual'] = perceptual
+
+        if self.lambda_laplacian > 0:
+            laplacian = self.laplacian_loss(pred, target)
+            total_loss += self.lambda_laplacian * laplacian
+            metrics['laplacian'] = laplacian
         
         # Agregar FFL si está habilitado
-        if self.ffl_loss is not None:
+        if self.lambda_ffl > 0 and self.ffl_loss is not None:
             ffl = self.ffl_loss(pred, target)
             total_loss += self.lambda_ffl * ffl
             metrics['ffl'] = ffl
             
         # Agregar DreamSim si está habilitado
-        if self.dreamsim_loss is not None:
+        if self.lambda_dreamsim > 0 and self.dreamsim_loss is not None:
             # DreamSim espera RGB estándar, nuestros tensores están en [-1, 1]
             # DreamSim maneja normalización interna, pero aseguramos float
             dream = self.dreamsim_loss(pred, target)
@@ -256,6 +258,7 @@ class HybridLoss(nn.Module):
                 dream = dream.mean()
             total_loss += self.lambda_dreamsim * dream
             metrics['dreamsim'] = dream
-            metrics['total'] = total_loss # Actualizar total
+            
+        metrics['total'] = total_loss
             
         return metrics
