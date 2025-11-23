@@ -84,6 +84,21 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
     # Cargar modelo
     model = load_model(model_path, config, device)
     
+    # Detectar arquitectura del checkpoint
+    checkpoint = torch.load(model_path, map_location=device)
+    if isinstance(checkpoint, dict) and 'architecture' in checkpoint:
+        arch_name = checkpoint['architecture']
+    else:
+        arch_name = config['model'].get('architecture', 'unet')
+    
+    # Modificar output_path para incluir arquitectura
+    from pathlib import Path
+    output_path_obj = Path(output_path)
+    if output_path_obj.suffix:  # Es un archivo (video)
+        output_path_modified = output_path_obj.parent / f"{output_path_obj.stem}_{arch_name}{output_path_obj.suffix}"
+    else:  # Es un directorio (secuencia)
+        output_path_modified = Path(str(output_path_obj) + f"_{arch_name}")
+    
     # Transformaciones
     # Si native_resolution es True, NO redimensionamos (resize=False)
     should_resize = not native_resolution
@@ -93,7 +108,7 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
     predict_on_video(
         model,
         video_path,
-        output_path,
+        str(output_path_modified),
         device,
         transform=transform,
         target_fps=config['inference']['target_fps'],
@@ -102,7 +117,7 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         lossless=lossless
     )
     
-    logger.info(f"✓ Salida generada: {output_path}")
+    logger.info(f"✓ Salida generada: {output_path_modified}")
 
 
 def extract_frames(video_path: str, output_dir: str, sample_rate: int = 1):

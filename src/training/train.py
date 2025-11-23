@@ -99,7 +99,6 @@ def validate(
     """
     model.eval()
     total_loss = 0.0
-    psnr_values = []
     num_batches = 0
     
     with torch.no_grad():
@@ -117,17 +116,9 @@ def validate(
             
             total_loss += loss.item()
             num_batches += 1
-            
-            # Calcular PSNR (max_val = 2.0 para rango [-1, 1])
-            mse = torch.mean((output - target_img) ** 2)
-            psnr = 20 * torch.log10(2.0 / torch.sqrt(mse))
-            psnr_values.append(psnr.item())
-    
-    avg_psnr = sum(psnr_values) / len(psnr_values) if psnr_values else 0
     
     return {
-        'val_loss': total_loss / num_batches,
-        'psnr': avg_psnr
+        'val_loss': total_loss / num_batches
     }
 
 

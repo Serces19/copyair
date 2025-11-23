@@ -16,7 +16,7 @@ model:
   # - convnext: ConvNeXt U-Net (excelente para few-shot)
   # - mambair: MambaIRv2 (SOTA, global context, eficiente)
   
-  architecture: "mambair"  # Cambiar a "nafnet", "convnext" o "mambair"
+  architecture: "unet"  # Cambiar a "nafnet", "convnext" o "mambair"
   
   # Para NAFNet, ConvNeXt y MambaIR, especificar tamaño:
   size: "base"  # nano, tiny, small, base, large (según arquitectura)
@@ -60,6 +60,7 @@ training:
   # Validación
   # Si es 0, se entrena con TODO el dataset y se valida con 1 muestra aleatoria (sin augs) por época
   val_split: 0
+  val_interval: 50  # Validar cada N épocas (para eficiencia en few-shot)
   
   # Checkpoint
   save_interval: 250
@@ -68,14 +69,15 @@ training:
 # Parámetros de pérdida
 loss:
   type: "hybrid"  # l1, ssim, hybrid
-  lambda_l1: 0.6
+  lambda_l1: 0.4
   lambda_ssim: 0.2
-  lambda_perceptual: 0.15
-  lambda_laplacian: 0.05
+  lambda_perceptual: 0.3
+  lambda_laplacian: 0.1
+
 
 # Masked Loss (Entrenamiento Ponderado)
 masked_loss:
-  enabled: true
+  enabled: false
   threshold: 0.05      # Diferencia mínima para considerar "cambio"
   dilation_kernel: 5   # Engrosar máscara (píxeles)
   blur_kernel: 5       # Suavizar bordes (píxeles)
@@ -87,9 +89,9 @@ augmentation:
   horizontal_flip_p: 0.2
   vertical_flip_p: 0.2
   rotation_limit: 15
-  gaussian_noise_p: 0.2
-  gaussian_blur_p: 0.2
-  color_jitter_p: 0.2
+  gaussian_noise_p: 0.0
+  gaussian_blur_p: 0.1
+  color_jitter_p: 0.1
 
 # Hardware
 device: "cuda"  # cuda o cpu

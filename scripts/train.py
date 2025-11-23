@@ -82,13 +82,22 @@ def setup_data(config: dict, device: torch.device):
             mask_config=mask_config
         )
         
-        # Dataset de validación (Todo el data, SIN aumentaciones)
-        # Usamos esto para chequear overfitting/reconstrucción
+        # Dataset de validación (Resolución NATIVA, SIN crop, SIN resize, solo normalize)
+        # Para few-shot: validamos en resolución original para ver calidad real
+        from albumentations import Normalize
+        from albumentations.pytorch import ToTensorV2
+        import albumentations as A
+        
+        native_val_transform = A.Compose([
+            Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255.0),
+            ToTensorV2()
+        ])
+        
         full_val_dataset = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=val_transform,
-            mask_config=mask_config
+            transform=native_val_transform,
+            mask_config={'enabled': False}  # No mask for validation
         )
         
         # Para cumplir "un frame aleatorio por epoch", usamos un Sampler o simplemente shuffle=True
@@ -238,7 +247,8 @@ def train(config: dict, device: torch.device):
         mlflow.set_experiment(experiment_name)
 
     # Logging
-    best_val_loss = float('inf')
+    best_train_loss = float('inf')  # Cambiado a train_loss para few-shot
+    last_saved_epoch = -1
     patience_counter = 0
 
     logger.info("Iniciando entrenamiento...")
@@ -272,12 +282,14 @@ def train(config: dict, device: torch.device):
                 # Registrar métricas de entrenamiento en MLflow
                 mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
 
-                # Validación
-                val_metrics = validate(model, val_loader, loss_fn, device)
-
-                # Registrar métricas de validación en MLflow
-                mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
-                mlflow.log_metric('val/psnr', val_metrics['psnr'], step=epoch)
+                # Validación (solo cada val_interval épocas para eficiencia)
+                val_interval = config['training'].get('val_interval', 50)
+                if epoch % val_interval == 0:
+                    val_metrics = validate(model, val_loader, loss_fn, device)
+                    mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+                    logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
+                else:
+                    val_metrics = None
 
                 # Visualización de validación cada 100 épocas
                 if (epoch + 1) % 100 == 0:
@@ -330,30 +342,37 @@ def train(config: dict, device: torch.device):
                 current_lr = scheduler.get_last_lr()[0]
                 mlflow.log_metric('train/lr', current_lr, step=epoch)
 
-                logger.info(
-                    f"Época {epoch + 1}/{config['training']['epochs']} | "
-                    f"Train Loss: {train_metrics['loss']:.4f} | "
-                    f"Val Loss: {val_metrics['val_loss']:.4f} | "
-                    f"PSNR: {val_metrics['psnr']:.2f}"
-                )
+                # Logging
+                if val_metrics:
+                    logger.info(
+                        f"Época {epoch + 1}/{config['training']['epochs']} | "
+                        f"Train Loss: {train_metrics['loss']:.4f} | "
+                        f"Val Loss: {val_metrics['val_loss']:.4f}"
+                    )
+                else:
+                    logger.info(
+                        f"Época {epoch + 1}/{config['training']['epochs']} | "
+                        f"Train Loss: {train_metrics['loss']:.4f}"
+                    )
 
-                # Early stopping       
-                if epoch > 250 and (val_metrics['val_loss'] < best_val_loss * (1 - min_delta) - epsilon or epoch - last_saved_epoch >= config['training']['early_stopping_patience']):
+                # Guardar mejor modelo basado en TRAIN_LOSS (few-shot strategy)
+                if epoch > 250 and (train_metrics['loss'] < best_train_loss * (1 - min_delta) - epsilon or epoch - last_saved_epoch >= config['training']['early_stopping_patience']):
                     last_saved_epoch = epoch
-                    best_val_loss = val_metrics['val_loss']
+                    best_train_loss = train_metrics['loss']
                     patience_counter = 0
 
                     # Guardar mejor modelo con metadatos
-                    best_path = Path(config['data']['models_dir']) / 'best_model.pth'
+                    arch_name = config['model'].get('architecture', 'unet')
+                    best_path = Path(config['data']['models_dir']) / f'best_model_{arch_name}.pth'
                     checkpoint_data = {
                         'model_state_dict': model.state_dict(),
                         'model_config': config['model'],
-                        'architecture': config['model'].get('architecture', 'unet'),
+                        'architecture': arch_name,
                         'epoch': epoch,
-                        'val_loss': val_metrics['val_loss']
+                        'train_loss': train_metrics['loss']
                     }
                     torch.save(checkpoint_data, best_path)
-                    logger.info("✓ Mejor modelo guardado (con metadatos)")
+                    logger.info(f"✓ Mejor modelo guardado (Train Loss: {train_metrics['loss']:.4f})")
 
                     # Registrar checkpoint como artefacto
                     mlflow.log_artifact(str(best_path), artifact_path='checkpoints')
@@ -366,13 +385,14 @@ def train(config: dict, device: torch.device):
                 # Checkpoint periódico
                 if (epoch + 1) % config['training']['save_interval'] == 0:
                     last_saved_epoch = epoch
-                    ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_epoch_{epoch + 1}.pth'
+                    arch_name = config['model'].get('architecture', 'unet')
+                    ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_{arch_name}_epoch_{epoch + 1}.pth'
                     checkpoint_data = {
                         'model_state_dict': model.state_dict(),
                         'model_config': config['model'],
-                        'architecture': config['model'].get('architecture', 'unet'),
+                        'architecture': arch_name,
                         'epoch': epoch,
-                        'val_loss': val_metrics['val_loss']
+                        'train_loss': train_metrics['loss']
                     }
                     torch.save(checkpoint_data, ckpt_path)
                     mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
