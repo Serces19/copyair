@@ -9,7 +9,8 @@ from typing import Optional
 
 def get_transforms(
     img_size: int = 256,
-    augment: bool = True
+    augment: bool = True,
+    aug_config: dict = None
 ) -> dict:
     """
     Define transformaciones separadas para geometría (ambas imágenes) y normalización.
@@ -23,23 +24,43 @@ def get_transforms(
     Args:
         img_size: Tamaño de imagen destino
         augment: Si aplicar augmentaciones geométricas
+        aug_config: Diccionario con configuración de augmentaciones desde params.yaml
     
     Returns:
         Diccionario con 'common' (geometric), 'input' y 'gt' (normalización)
     """
     
+    # Configuración por defecto si no se proporciona
+    if aug_config is None:
+        aug_config = {
+            'horizontal_flip_p': 0.2,
+            'vertical_flip_p': 0.2,
+            'rotation_limit': 15,
+            'gaussian_noise_p': 0.0,
+            'gaussian_blur_p': 0.0,
+            'color_jitter_p': 0.0
+        }
+    
     # Transformaciones geométricas (aplicar a Input y GT por igual)
     if augment:
-        common_transforms = A.Compose([
-            A.RandomCrop(width=img_size, height=img_size, p=1),
-            A.HorizontalFlip(p=0.2),
-            A.VerticalFlip(p=0.2),
-            A.Rotate(limit=15, p=0.3),
-        ], additional_targets={'image0': 'image'})
+        geometric_transforms = [A.RandomCrop(width=img_size, height=img_size, p=1)]
+        
+        # Flips
+        if aug_config.get('horizontal_flip_p', 0) > 0:
+            geometric_transforms.append(A.HorizontalFlip(p=aug_config['horizontal_flip_p']))
+        if aug_config.get('vertical_flip_p', 0) > 0:
+            geometric_transforms.append(A.VerticalFlip(p=aug_config['vertical_flip_p']))
+        
+        # Rotation
+        rotation_limit = aug_config.get('rotation_limit', 0)
+        if rotation_limit > 0:
+            geometric_transforms.append(A.Rotate(limit=rotation_limit, p=0.5))
+        
+        common_transforms = A.Compose(geometric_transforms, additional_targets={'image0': 'image', 'mask': 'mask'})
     else:
         common_transforms = A.Compose([
             A.RandomCrop(width=img_size, height=img_size, p=1),
-        ], additional_targets={'image0': 'image'})
+        ], additional_targets={'image0': 'image', 'mask': 'mask'})
 
     # Normalización a [-1, 1] para Input
     # Fórmula: (pixel / 255.0) * 2 - 1  →  [0, 255] → [0, 1] → [-1, 1]

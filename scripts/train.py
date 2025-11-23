@@ -60,11 +60,13 @@ def setup_data(config: dict, device: torch.device):
     # Transformaciones
     train_transform = get_transforms(
         img_size=config['augmentation']['img_size'],
-        augment=config['augmentation']['enabled']
+        augment=config['augmentation']['enabled'],
+        aug_config=config['augmentation']
     )
     val_transform = get_transforms(
         img_size=config['augmentation']['img_size'],
-        augment=False
+        augment=False,
+        aug_config=config['augmentation']
     )
     
     # Configuración de máscara
@@ -284,7 +286,7 @@ def train(config: dict, device: torch.device):
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
-                if epoch % val_interval == 0:
+                if epoch == 0 or epoch % val_interval == 0:
                     val_metrics = validate(model, val_loader, loss_fn, device)
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                     logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")

@@ -86,8 +86,8 @@ masked_loss:
 augmentation:
   enabled: true
   img_size: 256
-  horizontal_flip_p: 0.2
-  vertical_flip_p: 0.2
+  horizontal_flip_p: 0.0
+  vertical_flip_p: 0.0
   rotation_limit: 15
   gaussian_noise_p: 0.0
   gaussian_blur_p: 0.1
