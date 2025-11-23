@@ -68,7 +68,7 @@ training:
 
 # Parámetros de pérdida
 loss:
-  type: "hybrid"  # l1, ssim, hybrid
+
   lambda_l1: 0.0
   lambda_ssim: 0.0
   lambda_perceptual: 0.7

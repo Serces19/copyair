@@ -271,7 +271,7 @@ def train(config: dict, device: torch.device):
             mlflow.log_param('training.learning_rate', config['training'].get('learning_rate'))
             mlflow.log_param('training.optimizer', config['training'].get('optimizer', {}).get('type', 'adam'))
             
-            mlflow.log_param('loss.type', config['loss'].get('type'))
+
             mlflow.log_param('data.input_dir', config['data'].get('input_dir'))
 
             min_delta = 0.02
@@ -284,13 +284,15 @@ def train(config: dict, device: torch.device):
                 )
 
                 # Registrar métricas de entrenamiento en MLflow
-                mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
+                for k, v in train_metrics.items():
+                    mlflow.log_metric(f'train/{k}', v, step=epoch)
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
                 if epoch == 0 or epoch % val_interval == 0:
                     val_metrics = validate(model, val_loader, loss_fn, device)
-                    mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+                    for k, v in val_metrics.items():
+                        mlflow.log_metric(k, v, step=epoch)
                     logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
                 else:
                     val_metrics = None

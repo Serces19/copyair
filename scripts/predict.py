@@ -133,7 +133,7 @@ def main():
     parser = argparse.ArgumentParser(description="Inferencia con U-Net")
     parser.add_argument('--config', type=str, default='configs/params.yaml', help='Configuración')
     parser.add_argument('--model', type=str, required=True, help='Ruta al modelo preentrenado')
-    parser.add_argument('--video', type=str, help='Ruta al video de entrada')
+    parser.add_argument('--video', type=str, help='Ruta al video de entrada o directorio de imágenes')
     parser.add_argument('--output', type=str, help='Ruta al video/directorio de salida')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo')
     parser.add_argument('--extract-frames', action='store_true', help='Solo extraer frames')

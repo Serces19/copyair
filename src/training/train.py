@@ -27,7 +27,7 @@ def train_epoch(
         model: Modelo a entrenar
         train_loader: DataLoader de entrenamiento
         optimizer: Optimizador
-        loss_fn: Función de pérdida
+        loss_fn: Función de pérdida (HybridLoss)
         device: CPU o GPU
         epoch: Número de época
     
@@ -35,7 +35,9 @@ def train_epoch(
         Diccionario con métricas de entrenamiento
     """
     model.train()
-    total_loss = 0.0
+    
+    # Acumulador de métricas
+    accumulated_metrics = {}
     num_batches = 0
     
     logger.info(f"Época {epoch + 1}")
@@ -51,13 +53,9 @@ def train_epoch(
         optimizer.zero_grad()
         output = model(input_img)
         
-        # Calcular pérdida
-        if isinstance(loss_fn, nn.Module) and hasattr(loss_fn, '__name__'):
-            loss = loss_fn(output, target_img)
-        else:
-            # Si es HybridLoss que retorna un diccionario
-            losses_dict = loss_fn(output, target_img, mask=mask)
-            loss = losses_dict['total']
+        # Calcular pérdida (Siempre es HybridLoss -> retorna dict)
+        losses_dict = loss_fn(output, target_img, mask=mask)
+        loss = losses_dict['total']
         
         # Backward pass
         loss.backward()
@@ -67,16 +65,24 @@ def train_epoch(
         
         optimizer.step()
         
-        total_loss += loss.item()
+        # Acumular métricas
+        for k, v in losses_dict.items():
+            if isinstance(v, torch.Tensor):
+                v = v.item()
+            accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
+            
         num_batches += 1
         
         if (batch_idx + 1) % 10 == 0:
-            avg_loss = total_loss / num_batches
+            avg_loss = accumulated_metrics['total'] / num_batches
             logger.info(f"Batch {batch_idx + 1}/{len(train_loader)}, Loss: {avg_loss:.4f}")
     
-    return {
-        'loss': total_loss / num_batches
-    }
+    # Promediar métricas
+    final_metrics = {k: v / num_batches for k, v in accumulated_metrics.items()}
+    # Renombrar 'total' a 'loss' para compatibilidad
+    final_metrics['loss'] = final_metrics['total']
+    
+    return final_metrics
 
 
 def validate(
@@ -98,7 +104,7 @@ def validate(
         Diccionario con métricas de validación
     """
     model.eval()
-    total_loss = 0.0
+    accumulated_metrics = {}
     num_batches = 0
     
     with torch.no_grad():
@@ -108,18 +114,26 @@ def validate(
             
             output = model(input_img)
             
-            if isinstance(loss_fn, nn.Module) and hasattr(loss_fn, '__name__'):
-                loss = loss_fn(output, target_img)
-            else:
-                losses_dict = loss_fn(output, target_img)
-                loss = losses_dict['total']
+            # Siempre HybridLoss
+            losses_dict = loss_fn(output, target_img)
             
-            total_loss += loss.item()
+            # Acumular métricas
+            for k, v in losses_dict.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.item()
+                accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
+            
             num_batches += 1
     
-    return {
-        'val_loss': total_loss / num_batches
-    }
+    if num_batches == 0:
+        return {'val_loss': 0.0}
+
+    # Promediar métricas
+    final_metrics = {f"val_{k}": v / num_batches for k, v in accumulated_metrics.items()}
+    # Asegurar que existe val_loss
+    final_metrics['val_loss'] = final_metrics.get('val_total', 0.0)
+    
+    return final_metrics
 
 
 def compute_metrics(output: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:

@@ -91,16 +91,64 @@ def predict_on_video(
     
     logger.info(f"Procesando video: {video_path}")
     
-    # Abrir video
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise ValueError(f"No se pudo abrir el video: {video_path}")
+    # Detectar si es directorio o archivo
+    video_path_obj = Path(video_path)
+    is_directory = video_path_obj.is_dir()
     
-    # Obtener propiedades
-    fps = cap.get(cv2.CAP_PROP_FPS) or target_fps
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if is_directory:
+        # Modo Directorio de Imágenes
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif'}
+        image_files = sorted([
+            p for p in video_path_obj.glob('*')
+            if p.suffix.lower() in image_extensions
+        ])
+        
+        if not image_files:
+            raise ValueError(f"No se encontraron imágenes en {video_path}")
+            
+        logger.info(f"Modo Entrada: Directorio de Imágenes ({len(image_files)} frames)")
+        
+        # Leer primer frame para obtener dimensiones
+        first_frame = cv2.imread(str(image_files[0]))
+        if first_frame is None:
+            raise ValueError(f"No se pudo leer la primera imagen: {image_files[0]}")
+            
+        height, width = first_frame.shape[:2]
+        total_frames = len(image_files)
+        fps = target_fps  # Usar target_fps ya que no hay FPS intrínseco
+        
+        # Generador de frames para directorio
+        def frame_provider():
+            for img_path in image_files:
+                frame = cv2.imread(str(img_path))
+                if frame is None:
+                    logger.warning(f"No se pudo leer frame: {img_path}")
+                    continue
+                yield True, frame
+            yield False, None
+            
+    else:
+        # Modo Video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"No se pudo abrir el video: {video_path}")
+        
+        # Obtener propiedades
+        fps = cap.get(cv2.CAP_PROP_FPS) or target_fps
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Generador de frames para video
+        def frame_provider():
+            while True:
+                ret, frame = cap.read()
+                yield ret, frame
+            cap.release()
+            yield False, None
+            
+    # Inicializar generador
+    frames_iter = frame_provider()
     
     # Determinar tipo de salida: Video o Secuencia de Imágenes
     output_path_obj = Path(output_path)
@@ -185,7 +233,7 @@ def predict_on_video(
         logger.info("Modo: Resize (se ajustará al tamaño de entrenamiento)")
     
     while True:
-        ret, frame = cap.read()
+        ret, frame = next(frames_iter)
         if not ret:
             break
         
