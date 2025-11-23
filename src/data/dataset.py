@@ -30,7 +30,8 @@ class PairedImageDataset(Dataset):
         input_dir: str, 
         gt_dir: str,
         transform: Optional[Callable] = None,
-        img_format: str = "png"
+        img_format: str = "png",
+        mask_config: Optional[dict] = None
     ):
         """
         Args:
@@ -38,11 +39,13 @@ class PairedImageDataset(Dataset):
             gt_dir: Ruta al directorio con imágenes ground truth
             transform: Transformaciones a aplicar (albumentations)
             img_format: Formato de imagen (jpg, png, etc.)
+            mask_config: Configuración para máscara dinámica (enabled, threshold, dilation, blur)
         """
         self.input_dir = input_dir
         self.gt_dir = gt_dir
         self.transform = transform
         self.img_format = img_format
+        self.mask_config = mask_config or {'enabled': False}
         
         # Cargar lista de archivos
         self.img_files = sorted([
@@ -61,7 +64,8 @@ class PairedImageDataset(Dataset):
         Retorna un diccionario con:
         {
             'input': tensor de imagen entrada,
-            'gt': tensor de imagen ground truth
+            'gt': tensor de imagen ground truth,
+            'mask': tensor de máscara (opcional)
         }
         """
         img_name = self.img_files[idx]
@@ -80,15 +84,50 @@ class PairedImageDataset(Dataset):
         input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
         gt_img = cv2.cvtColor(gt_img, cv2.COLOR_BGR2RGB)
         
+        # Generar máscara dinámica si está habilitada
+        mask = None
+        if self.mask_config.get('enabled', False):
+            # 1. Calcular diferencia absoluta
+            # Convertir a float para precisión
+            diff = cv2.absdiff(input_img, gt_img) # (H, W, 3)
+            diff = np.mean(diff, axis=2) / 255.0 # (H, W), rango [0, 1]
+            
+            # 2. Umbralizar (binarizar zonas de cambio)
+            threshold = self.mask_config.get('threshold', 0.05)
+            mask_bin = (diff > threshold).astype(np.float32)
+            
+            # 3. Dilatar (engrosar máscara)
+            dilation_k = self.mask_config.get('dilation_kernel', 5)
+            if dilation_k > 0:
+                kernel = np.ones((dilation_k, dilation_k), np.uint8)
+                mask_bin = cv2.dilate(mask_bin, kernel, iterations=1)
+            
+            # 4. Blur (suavizar bordes para "soft attention")
+            blur_k = self.mask_config.get('blur_kernel', 5)
+            if blur_k > 0:
+                # Asegurar kernel impar
+                if blur_k % 2 == 0: blur_k += 1
+                mask_bin = cv2.GaussianBlur(mask_bin, (blur_k, blur_k), 0)
+            
+            # Expandir dimensiones para ser (H, W, 1) compatible con transformaciones
+            mask = mask_bin[:, :, np.newaxis] # (H, W, 1)
+        
         # Aplicar transformaciones
         if self.transform is not None:
             # Nuevo formato: diccionario con 'common', 'input', 'gt'
             if isinstance(self.transform, dict):
-                # 1. Transformaciones geométricas (ambas imágenes)
+                # 1. Transformaciones geométricas (ambas imágenes + máscara)
                 if 'common' in self.transform:
-                    transformed = self.transform['common'](image=input_img, image0=gt_img)
-                    input_img = transformed['image']
-                    gt_img = transformed['image0']
+                    # Si hay máscara, la pasamos también
+                    if mask is not None:
+                        transformed = self.transform['common'](image=input_img, image0=gt_img, mask=mask)
+                        input_img = transformed['image']
+                        gt_img = transformed['image0']
+                        mask = transformed['mask']
+                    else:
+                        transformed = self.transform['common'](image=input_img, image0=gt_img)
+                        input_img = transformed['image']
+                        gt_img = transformed['image0']
                 
                 # 2. Transformaciones de input (pixel-level + normalize)
                 if 'input' in self.transform:
@@ -101,9 +140,15 @@ class PairedImageDataset(Dataset):
                     gt_img = transformed_gt['image']
             else:
                 # Formato antiguo (backward compatibility)
-                transformed = self.transform(image=input_img, image1=gt_img)
-                input_img = transformed['image']
-                gt_img = transformed['image1']
+                if mask is not None:
+                    transformed = self.transform(image=input_img, image1=gt_img, mask=mask)
+                    input_img = transformed['image']
+                    gt_img = transformed['image1']
+                    mask = transformed['mask']
+                else:
+                    transformed = self.transform(image=input_img, image1=gt_img)
+                    input_img = transformed['image']
+                    gt_img = transformed['image1']
 
         # Convertir a tensores si aún no lo son
         def _to_tensor(img):
@@ -112,6 +157,7 @@ class PairedImageDataset(Dataset):
                 # Normalizar a [-1, 1]
                 img = img.astype(np.float32)
                 img = (img / 255.0) * 2.0 - 1.0  # [0, 255] → [-1, 1]
+                if img.ndim == 2: img = img[:, :, np.newaxis]
                 img = torch.from_numpy(img).permute(2, 0, 1)
                 return img
             if isinstance(img, torch.Tensor):
@@ -134,12 +180,31 @@ class PairedImageDataset(Dataset):
             gt_tensor = _to_tensor(gt_img)
         else:
             gt_tensor = gt_img
+            
+        # Procesar máscara final
+        mask_tensor = None
+        if mask is not None:
+            if isinstance(mask, np.ndarray):
+                # Máscara ya está en [0, 1], solo convertir a tensor (C, H, W)
+                if mask.ndim == 2: mask = mask[:, :, np.newaxis]
+                mask_tensor = torch.from_numpy(mask.astype(np.float32)).permute(2, 0, 1)
+            elif isinstance(mask, torch.Tensor):
+                if mask.ndim == 3 and mask.shape[-1] == 1:
+                    mask = mask.permute(2, 0, 1)
+                mask_tensor = mask.float()
+            
+            # Asegurar que máscara sea binaria/suave en [0, 1]
+            # No normalizamos a [-1, 1] porque es un peso
 
-        return {
+        result = {
             'input': input_tensor,
             'gt': gt_tensor,
             'filename': img_name
         }
+        if mask_tensor is not None:
+            result['mask'] = mask_tensor
+            
+        return result
 
 
 class VideoFrameDataset(Dataset):

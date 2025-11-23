@@ -43,6 +43,9 @@ def train_epoch(
     for batch_idx, batch in enumerate(train_loader):
         input_img = batch['input'].to(device)
         target_img = batch['gt'].to(device)
+        mask = batch.get('mask')
+        if mask is not None:
+            mask = mask.to(device)
         
         # Forward pass
         optimizer.zero_grad()
@@ -53,7 +56,7 @@ def train_epoch(
             loss = loss_fn(output, target_img)
         else:
             # Si es HybridLoss que retorna un diccionario
-            losses_dict = loss_fn(output, target_img)
+            losses_dict = loss_fn(output, target_img, mask=mask)
             loss = losses_dict['total']
         
         # Backward pass

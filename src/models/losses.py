@@ -145,8 +145,17 @@ class HybridLoss(nn.Module):
         self.perceptual_loss = PerceptualLoss(device=device)
         self.laplacian_loss = LaplacianPyramidLoss(device=device)
     
-    def forward(self, pred, target):
-        l1 = self.l1_loss(pred, target)
+    def forward(self, pred, target, mask=None):
+        # L1 Loss (Masked or Standard)
+        if mask is not None:
+            # Masked L1: Enfocarse en áreas de interés
+            l1_map = torch.abs(pred - target)
+            masked_l1 = l1_map * mask
+            # Normalizar por la suma de la máscara para mantener la escala
+            l1 = masked_l1.sum() / (mask.sum() + 1e-6)
+        else:
+            l1 = self.l1_loss(pred, target)
+            
         ssim = self.ssim_loss(pred, target)
         perceptual = self.perceptual_loss(pred, target)
         laplacian = self.laplacian_loss(pred, target)

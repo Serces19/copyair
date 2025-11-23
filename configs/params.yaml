@@ -73,6 +73,13 @@ loss:
   lambda_perceptual: 0.15
   lambda_laplacian: 0.05
 
+# Masked Loss (Entrenamiento Ponderado)
+masked_loss:
+  enabled: true
+  threshold: 0.05      # Diferencia mínima para considerar "cambio"
+  dilation_kernel: 5   # Engrosar máscara (píxeles)
+  blur_kernel: 5       # Suavizar bordes (píxeles)
+
 # Aumentación de datos
 augmentation:
   enabled: true

@@ -67,6 +67,9 @@ def setup_data(config: dict, device: torch.device):
         augment=False
     )
     
+    # Configuración de máscara
+    mask_config = config.get('masked_loss', {'enabled': False})
+    
     # Si val_split es 0, usamos TODO para entrenar y validamos con una muestra aleatoria del mismo set (sin augs)
     if config['training']['val_split'] == 0:
         logger.info("Modo: Entrenar con TODO el dataset (sin split de validación estático)")
@@ -75,7 +78,8 @@ def setup_data(config: dict, device: torch.device):
         train_dataset = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=train_transform
+            transform=train_transform,
+            mask_config=mask_config
         )
         
         # Dataset de validación (Todo el data, SIN aumentaciones)
@@ -83,7 +87,8 @@ def setup_data(config: dict, device: torch.device):
         full_val_dataset = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=val_transform
+            transform=val_transform,
+            mask_config=mask_config
         )
         
         # Para cumplir "un frame aleatorio por epoch", usamos un Sampler o simplemente shuffle=True
@@ -117,7 +122,8 @@ def setup_data(config: dict, device: torch.device):
         base_dataset = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=None # No transform yet
+            transform=None, # No transform yet
+            mask_config=mask_config
         )
         
         val_size = int(len(base_dataset) * config['training']['val_split'])
@@ -133,13 +139,15 @@ def setup_data(config: dict, device: torch.device):
         full_train_ds = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=train_transform
+            transform=train_transform,
+            mask_config=mask_config
         )
         
         full_val_ds = PairedImageDataset(
             input_dir=config['data']['input_dir'],
             gt_dir=config['data']['gt_dir'],
-            transform=val_transform
+            transform=val_transform,
+            mask_config=mask_config
         )
         
         # Aplicar los índices del split
