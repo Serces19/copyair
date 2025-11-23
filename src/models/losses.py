@@ -134,10 +134,14 @@ class FocalFrequencyLoss(nn.Module):
         self.alpha = alpha # Factor de enfoque (cuánto castigar las frec. difíciles)
 
     def forward(self, pred, target):
+        # Normalizar de [-1, 1] a [0, 1] para estabilidad en frecuencia
+        pred_norm = (pred + 1) * 0.5
+        target_norm = (target + 1) * 0.5
+        
         # 1. Transformada de Fourier 2D (FFT)
         # RFFT2 es para entradas reales (imágenes)
-        pred_freq = torch.fft.rfft2(pred, norm='ortho')
-        target_freq = torch.fft.rfft2(target, norm='ortho')
+        pred_freq = torch.fft.rfft2(pred_norm, norm='ortho')
+        target_freq = torch.fft.rfft2(target_norm, norm='ortho')
 
         # 2. Extraer Magnitud (Amplitud del espectro)
         pred_mag = torch.abs(pred_freq)
