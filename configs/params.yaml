@@ -70,9 +70,9 @@ training:
 loss:
   type: "hybrid"  # l1, ssim, hybrid
   lambda_l1: 0.4
-  lambda_ssim: 0.2
+  lambda_ssim: 0.1
   lambda_perceptual: 0.3
-  lambda_laplacian: 0.1
+  lambda_laplacian: 0.2
 
 
 # Masked Loss (Entrenamiento Ponderado)
@@ -84,14 +84,14 @@ masked_loss:
 
 # Aumentación de datos
 augmentation:
-  enabled: true
+  enabled: false
   img_size: 256
   horizontal_flip_p: 0.0
   vertical_flip_p: 0.0
-  rotation_limit: 15
+  rotation_limit: 0
   gaussian_noise_p: 0.0
-  gaussian_blur_p: 0.1
-  color_jitter_p: 0.1
+  gaussian_blur_p: 0.0
+  color_jitter_p: 0.0
 
 # Hardware
 device: "cuda"  # cuda o cpu
