@@ -251,9 +251,20 @@ class HybridLoss(nn.Module):
             
         # Agregar DreamSim si está habilitado
         if self.lambda_dreamsim > 0 and self.dreamsim_loss is not None:
-            # DreamSim espera RGB estándar, nuestros tensores están en [-1, 1]
-            # DreamSim maneja normalización interna, pero aseguramos float
-            dream = self.dreamsim_loss(pred, target)
+            # DreamSim espera RGB estándar [0, 1] y tamaño 224x224
+            # 1. Denormalizar [-1, 1] -> [0, 1]
+            pred_dream = (pred + 1.0) / 2.0
+            target_dream = (target + 1.0) / 2.0
+            
+            pred_dream = torch.clamp(pred_dream, 0.0, 1.0)
+            target_dream = torch.clamp(target_dream, 0.0, 1.0)
+            
+            # 2. Resize a 224x224 (Optimización y requisito de OpenCLIP)
+            if pred_dream.shape[-1] != 224 or pred_dream.shape[-2] != 224:
+                 pred_dream = F.interpolate(pred_dream, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+                 target_dream = F.interpolate(target_dream, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+
+            dream = self.dreamsim_loss(pred_dream, target_dream)
             if dream.ndim > 0:
                 dream = dream.mean()
             total_loss += self.lambda_dreamsim * dream
