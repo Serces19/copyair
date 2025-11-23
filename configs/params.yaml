@@ -4,7 +4,7 @@
 data:
   input_dir: "data/03_processed/input"
   gt_dir: "data/03_processed/gt"
-  frames_dir: "data/02_interim/dg"
+  frames_dir: "data/01_raw/input"
   output_dir: "output_inference"
   models_dir: "models"
 

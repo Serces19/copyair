@@ -1,6 +1,6 @@
 """
 Script de inferencia: Aplicar modelo a video
-Uso: python scripts/predict.py --model models/best_model.pth --video input.mp4 --output output.mp4
+Uso: python scripts/predict.py --model models/best_model.pth --video input.mov --output output.mp4
 """
 
 import argparse

@@ -22,7 +22,7 @@ class L1Loss(nn.Module):
 
 # --- Pérdida perceptual con LPIPS ---
 class PerceptualLoss(nn.Module):
-    def __init__(self, net='alex', device='cuda'):
+    def __init__(self, net='vgg', device='cuda'):
         super().__init__()
         self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net).to(device)
 
@@ -248,6 +248,8 @@ class HybridLoss(nn.Module):
             # DreamSim espera RGB estándar, nuestros tensores están en [-1, 1]
             # DreamSim maneja normalización interna, pero aseguramos float
             dream = self.dreamsim_loss(pred, target)
+            if dream.ndim > 0:
+                dream = dream.mean()
             total_loss += self.lambda_dreamsim * dream
             metrics['dreamsim'] = dream
             metrics['total'] = total_loss # Actualizar total
