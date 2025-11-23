@@ -78,7 +78,7 @@ def load_model(model_path: str, config: dict, device: torch.device):
     return model
 
 
-def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv'):
+def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv', lossless: bool = False):
     """Predice en video"""
     
     # Cargar modelo
@@ -98,10 +98,11 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         transform=transform,
         target_fps=config['inference']['target_fps'],
         native_resolution=native_resolution,
-        backend=backend
+        backend=backend,
+        lossless=lossless
     )
     
-    logger.info(f"✓ Video generado: {output_path}")
+    logger.info(f"✓ Salida generada: {output_path}")
 
 
 def extract_frames(video_path: str, output_dir: str, sample_rate: int = 1):
@@ -118,11 +119,12 @@ def main():
     parser.add_argument('--config', type=str, default='configs/params.yaml', help='Configuración')
     parser.add_argument('--model', type=str, required=True, help='Ruta al modelo preentrenado')
     parser.add_argument('--video', type=str, help='Ruta al video de entrada')
-    parser.add_argument('--output', type=str, help='Ruta al video de salida')
+    parser.add_argument('--output', type=str, help='Ruta al video/directorio de salida')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo')
     parser.add_argument('--extract-frames', action='store_true', help='Solo extraer frames')
     parser.add_argument('--native-resolution', action='store_true', help='Usar resolución nativa del video (sin resize)')
-    parser.add_argument('--backend', type=str, default='opencv', choices=['opencv', 'ffmpeg'], help='Backend de video (opencv: seguro color, ffmpeg: mejor compresión)')
+    parser.add_argument('--backend', type=str, default='ffmpeg', choices=['opencv', 'ffmpeg'], help='Backend de video (opencv: fallback, ffmpeg: mejor calidad)')
+    parser.add_argument('--lossless', action='store_true', help='Modo sin pérdidas (CRF 0 para video, PNG para secuencias)')
     
     args = parser.parse_args()
     
@@ -136,7 +138,7 @@ def main():
     if args.extract_frames and args.video:
         extract_frames(args.video, config['data']['frames_dir'])
     elif args.video and args.output:
-        predict(config, args.model, args.video, args.output, device, args.native_resolution, args.backend)
+        predict(config, args.model, args.video, args.output, device, args.native_resolution, args.backend, args.lossless)
     else:
         parser.print_help()
 

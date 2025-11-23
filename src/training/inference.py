@@ -67,7 +67,8 @@ def predict_on_video(
     transform=None,
     target_fps: int = 30,
     native_resolution: bool = False,
-    backend: str = 'opencv'
+    backend: str = 'opencv',
+    lossless: bool = False
 ) -> str:
     """
     Aplica el modelo a todos los frames de un video
@@ -101,45 +102,78 @@ def predict_on_video(
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    use_ffmpeg = False
+    # Determinar tipo de salida: Video o Secuencia de Imágenes
+    output_path_obj = Path(output_path)
+    is_sequence = output_path_obj.suffix == '' or output_path.endswith('/') or output_path.endswith('\\')
     
-    # Configurar backend
-    if backend == 'ffmpeg' and shutil.which('ffmpeg') is not None:
-        # Usar FFmpeg para escribir el video
-        # NOTA: Hemos eliminado los flags forzados de color (-color_range, -colorspace, etc.)
-        # para evitar cambios de color no deseados. Dejamos que FFmpeg decida o copie lo básico.
-        ffmpeg_cmd = [
-            'ffmpeg',
-            '-y',  # Sobrescribir sin preguntar
-            '-f', 'rawvideo',
-            '-vcodec', 'rawvideo',
-            '-s', f'{width}x{height}',
-            '-pix_fmt', 'bgr24',
-            '-r', str(fps),
-            '-i', '-',  # Input desde stdin
-            '-an',  # Sin audio
-            '-vcodec', 'libx264',
-            '-pix_fmt', 'yuv420p',
-            '-crf', '18',  # Calidad alta
-            '-preset', 'medium',
-            # Flags de color eliminados para evitar shifts
-            output_path
-        ]
+    if is_sequence:
+        # Modo Secuencia de Imágenes
+        output_path_obj.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Modo Salida: Secuencia de Imágenes (PNG) en {output_path}")
+        use_ffmpeg = False
+        out = None
+    else:
+        # Modo Video
+        use_ffmpeg = False
         
-        try:
-            process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            use_ffmpeg = True
-            logger.info("Usando backend: FFmpeg (sin metadatos de color forzados)")
-        except Exception as e:
-            logger.warning(f"Error al iniciar FFmpeg: {e}, cayendo a OpenCV")
-            use_ffmpeg = False
-    
-    if not use_ffmpeg:
-        # Backend OpenCV (Default y Fallback)
-        # Es el más seguro para consistencia de color pixel a pixel
-        logger.info("Usando backend: OpenCV (mp4v)")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Configurar backend
+        if backend == 'ffmpeg' and shutil.which('ffmpeg') is not None:
+            # Configuración para FFmpeg
+            # Si es lossless, usamos CRF 0 y flags de color estrictos
+            crf_val = '0' if lossless else '18'
+            preset = 'veryslow' if crf_val == '0' else 'medium'
+            
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-y',
+                '-f', 'rawvideo',
+                '-vcodec', 'rawvideo',
+                '-s', f'{width}x{height}',
+                '-pix_fmt', 'bgr24',
+                '-r', str(fps),
+                '-i', '-',
+                '-an',
+                '-vcodec', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-crf', crf_val,
+                '-preset', preset,
+            ]
+            
+            # Flags de color para lossless/alta fidelidad
+            if crf_val == '0':
+                ffmpeg_cmd.extend([
+                    '-color_range', 'tv',
+                    '-colorspace', 'bt709',
+                    '-color_primaries', 'bt709',
+                    '-color_trc', 'bt709'
+                ])
+                logger.info("Modo FFmpeg: LOSSLESS (CRF 0) + Color BT.709")
+            else:
+                logger.info(f"Modo FFmpeg: Alta Calidad (CRF {crf_val})")
+                
+            ffmpeg_cmd.append(output_path)
+            
+            try:
+                process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+                use_ffmpeg = True
+            except Exception as e:
+                logger.warning(f"Error al iniciar FFmpeg: {e}, cayendo a OpenCV")
+                use_ffmpeg = False
+        
+        if not use_ffmpeg:
+            # Backend OpenCV
+            logger.info("Usando backend: OpenCV")
+            # Intentar codec avc1 (H.264) primero, luego mp4v
+            try:
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                if not out.isOpened():
+                    raise Exception("avc1 no soportado")
+                logger.info("Codec: avc1 (H.264)")
+            except:
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+                logger.info("Codec: mp4v (Fallback)")
     
     model.eval()
     frame_count = 0
@@ -164,10 +198,9 @@ def predict_on_video(
             frame_padded, pad_h, pad_w = pad_to_divisor(frame_rgb, 32)
             
             # Normalizar a [-1, 1]
-            # (pixel / 255.0) * 2 - 1
             frame_tensor = torch.from_numpy(frame_padded).permute(2, 0, 1).float()
-            frame_tensor = (frame_tensor / 255.0) * 2.0 - 1.0  # [0, 255] → [-1, 1]
-            frame_tensor = frame_tensor.unsqueeze(0)  # [1, 3, H, W]
+            frame_tensor = (frame_tensor / 255.0) * 2.0 - 1.0
+            frame_tensor = frame_tensor.unsqueeze(0)
             
         else:
             # Modo Resize estándar
@@ -175,14 +208,13 @@ def predict_on_video(
                 transformed = transform(image=frame_rgb)
                 frame_tensor = transformed['image'].unsqueeze(0)
             else:
-                # Fallback: normalizar manualmente a [-1, 1]
                 frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).unsqueeze(0).float()
                 frame_tensor = (frame_tensor / 255.0) * 2.0 - 1.0
-
+ 
         # Predicción
         with torch.no_grad():
             frame_tensor = frame_tensor.to(device)
-            pred = model(frame_tensor)  # Output en [-1, 1]
+            pred = model(frame_tensor)
             pred = pred.squeeze(0).cpu().numpy()
             pred = np.transpose(pred, (1, 2, 0))
             
@@ -194,16 +226,18 @@ def predict_on_video(
         
         if native_resolution:
             # Quitar padding (Crop)
-            h_padded, w_padded = pred_bgr.shape[:2]
-            # El padding se añadió abajo y a la derecha
             pred_bgr = pred_bgr[:height, :width]
         else:
             # Redimensionar al tamaño original si hubo resize
             if pred_bgr.shape[0] != height or pred_bgr.shape[1] != width:
                 pred_bgr = cv2.resize(pred_bgr, (width, height))
         
-        # Escribir frame
-        if use_ffmpeg:
+        # Escribir salida
+        if is_sequence:
+            # Guardar frame individual (PNG es lossless)
+            frame_name = f"frame_{frame_count:06d}.png"
+            cv2.imwrite(str(output_path_obj / frame_name), pred_bgr)
+        elif use_ffmpeg:
             try:
                 process.stdin.write(pred_bgr.tobytes())
             except BrokenPipeError:
@@ -218,16 +252,19 @@ def predict_on_video(
     
     cap.release()
     
-    if use_ffmpeg:
-        process.stdin.close()
-        process.wait()
-        if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            logger.error(f"FFmpeg error: {stderr}")
+    if not is_sequence:
+        if use_ffmpeg:
+            process.stdin.close()
+            process.wait()
+            if process.returncode != 0:
+                stderr = process.stderr.read().decode()
+                logger.error(f"FFmpeg error: {stderr}")
+        else:
+            out.release()
+        logger.info(f"Video guardado en: {output_path}")
     else:
-        out.release()
-    
-    logger.info(f"Video guardado en: {output_path}")
+        logger.info(f"Secuencia guardada en: {output_path}")
+        
     return output_path
 
 
