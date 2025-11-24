@@ -22,7 +22,7 @@ class L1Loss(nn.Module):
 
 # --- Pérdida perceptual con LPIPS ---
 class PerceptualLoss(nn.Module):
-    def __init__(self, net='vgg', device='cuda'):
+    def __init__(self, net='alex', device='cuda'):
         super().__init__()
         self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net).to(device)
 
