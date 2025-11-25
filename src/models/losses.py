@@ -231,11 +231,65 @@ class FocalFrequencyLoss(nn.Module):
         return loss * self.loss_weight
 
 
+# --- Charbonnier Loss (Robust L1) ---
+class CharbonnierLoss(nn.Module):
+    """
+    Charbonnier Loss (L1 pseudo-Huber).
+    Más robusta que L1 y L2, converge mejor.
+    Formula: sqrt((pred - target)^2 + eps^2)
+    """
+    def __init__(self, eps=1e-3):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, pred, target):
+        diff = pred - target
+        loss = torch.sqrt(diff * diff + self.eps * self.eps)
+        return loss.mean()
+
+
+# --- Sobel Loss (Edge Loss) ---
+class SobelLoss(nn.Module):
+    """
+    Calcula la pérdida en el dominio de los gradientes (bordes) usando filtros Sobel.
+    Ayuda a recuperar detalles de alta frecuencia.
+    """
+    def __init__(self, device='cuda'):
+        super().__init__()
+        self.sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(device)
+        self.sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(device)
+        self.l1 = nn.L1Loss()
+
+    def forward(self, pred, target):
+        # Asegurar que los filtros estén en el mismo device que la entrada
+        if pred.device != self.sobel_x.device:
+            self.sobel_x = self.sobel_x.to(pred.device)
+            self.sobel_y = self.sobel_y.to(pred.device)
+
+        # Calcular gradientes por canal y sumarlos
+        # (N, 3, H, W) -> (N*3, 1, H, W) para conv2d
+        b, c, h, w = pred.shape
+        pred_flat = pred.view(-1, 1, h, w)
+        target_flat = target.view(-1, 1, h, w)
+
+        pred_gx = F.conv2d(pred_flat, self.sobel_x, padding=1)
+        pred_gy = F.conv2d(pred_flat, self.sobel_y, padding=1)
+        
+        target_gx = F.conv2d(target_flat, self.sobel_x, padding=1)
+        target_gy = F.conv2d(target_flat, self.sobel_y, padding=1)
+
+        # Pérdida L1 sobre los gradientes
+        loss_x = self.l1(pred_gx, target_gx)
+        loss_y = self.l1(pred_gy, target_gy)
+        
+        return loss_x + loss_y
+
+
 class HybridLoss(nn.Module):
     """
     Combinación de múltiples pérdidas para mejores resultados
     
-    Loss = λ1 * L1 + λ2 * SSIM + λ3 * Perceptual + λ4 * Laplacian
+    Loss = λ1 * L1 + λ2 * SSIM + λ3 * Perceptual + λ4 * Laplacian + ...
     """
     
     def __init__(
@@ -246,6 +300,8 @@ class HybridLoss(nn.Module):
         lambda_laplacian: float = 0.05,
         lambda_ffl: float = 0.0,
         lambda_dreamsim: float = 0.0,
+        lambda_charbonnier: float = 0.0,
+        lambda_sobel: float = 0.0,
         device: str = 'cuda'
     ):
         super().__init__()
@@ -255,11 +311,24 @@ class HybridLoss(nn.Module):
         self.lambda_laplacian = lambda_laplacian
         self.lambda_ffl = lambda_ffl
         self.lambda_dreamsim = lambda_dreamsim
+        self.lambda_charbonnier = lambda_charbonnier
+        self.lambda_sobel = lambda_sobel
         
         self.l1_loss = L1Loss()
         self.ssim_loss = SSIMLoss()
         self.perceptual_loss = PerceptualLoss(device=device)
         self.laplacian_loss = LaplacianPyramidLoss(device=device)
+        
+        # Nuevas pérdidas
+        if self.lambda_charbonnier > 0:
+            self.charbonnier_loss = CharbonnierLoss()
+        else:
+            self.charbonnier_loss = None
+            
+        if self.lambda_sobel > 0:
+            self.sobel_loss = SobelLoss(device=device)
+        else:
+            self.sobel_loss = None
         
         # Inicializar FFL si se usa
         if self.lambda_ffl > 0:
@@ -309,6 +378,18 @@ class HybridLoss(nn.Module):
             laplacian = self.laplacian_loss(pred, target)
             total_loss += self.lambda_laplacian * laplacian
             metrics['laplacian'] = laplacian
+            
+        # Charbonnier
+        if self.lambda_charbonnier > 0 and self.charbonnier_loss is not None:
+            charb = self.charbonnier_loss(pred, target)
+            total_loss += self.lambda_charbonnier * charb
+            metrics['charbonnier'] = charb
+            
+        # Sobel
+        if self.lambda_sobel > 0 and self.sobel_loss is not None:
+            sobel = self.sobel_loss(pred, target)
+            total_loss += self.lambda_sobel * sobel
+            metrics['sobel'] = sobel
         
         # Agregar FFL si está habilitado
         if self.lambda_ffl > 0 and self.ffl_loss is not None:

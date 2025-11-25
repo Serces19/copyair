@@ -73,12 +73,14 @@ training:
 
 # Parámetros de pérdida
 loss:
-  lambda_l1: 0.1
+  lambda_l1: 0.3
   lambda_ssim: 0.0
   lambda_perceptual: 0.7
   lambda_laplacian: 0.0
-  lambda_ffl: 0.15      # Focal Frequency Loss (Detalle fino)
-  lambda_dreamsim: 0.05 # DreamSim Loss (Coherencia semántica)
+  lambda_ffl: 0.00      # Focal Frequency Loss (Detalle fino)
+  lambda_dreamsim: 0.00 # DreamSim Loss (Coherencia semántica)
+  lambda_charbonnier: 0.0 # Charbonnier Loss (Robust L1) - Recomendado: 1.0 (si reemplaza L1)
+  lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
 
 
 # Masked Loss (Entrenamiento Ponderado)
