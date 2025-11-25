@@ -78,35 +78,47 @@ class ConvNeXtUNet(nn.Module):
         # 2. Decoder
         # Bottleneck es la última feature (dims[3])
         
+        # Usaremos Upsample (bilinear) + Conv para evitar checkerboard artifacts
+        # (Resize-Convolution)
+        
         # Up3: dims[3] -> dims[2] size
-        self.up3_conv = nn.Conv2d(dims[3], dims[2] * 4, kernel_size=1)
-        self.up3_ps = nn.PixelShuffle(2)
+        self.up3_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(dims[3], dims[2], kernel_size=3, padding=1)
+        )
         self.dec3 = ResidualBlock(dims[2] + dims[2], dims[2])
         
         # Up2: dims[2] -> dims[1] size
-        self.up2_conv = nn.Conv2d(dims[2], dims[1] * 4, kernel_size=1)
-        self.up2_ps = nn.PixelShuffle(2)
+        self.up2_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(dims[2], dims[1], kernel_size=3, padding=1)
+        )
         self.dec2 = ResidualBlock(dims[1] + dims[1], dims[1])
         
         # Up1: dims[1] -> dims[0] size
-        self.up1_conv = nn.Conv2d(dims[1], dims[0] * 4, kernel_size=1)
-        self.up1_ps = nn.PixelShuffle(2)
+        self.up1_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(dims[1], dims[0], kernel_size=3, padding=1)
+        )
         self.dec1 = ResidualBlock(dims[0] + dims[0], dims[0])
         
         # Up0: dims[0] (stride 4) -> Original size (stride 1)
-        # Necesitamos subir x4. Lo hacemos en dos pasos x2 o uno x4.
-        # Haremos dos pasos x2 con PixelShuffle para calidad.
+        # Necesitamos subir x4. Lo hacemos en dos pasos x2.
         
         # Paso 1: stride 4 -> stride 2
         mid_channels = dims[0] // 2
-        self.up0a_conv = nn.Conv2d(dims[0], mid_channels * 4, kernel_size=1)
-        self.up0a_ps = nn.PixelShuffle(2)
+        self.up0a_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(dims[0], mid_channels, kernel_size=3, padding=1)
+        )
         self.dec0a = ResidualBlock(mid_channels, mid_channels)
         
         # Paso 2: stride 2 -> stride 1
         final_channels = mid_channels // 2
-        self.up0b_conv = nn.Conv2d(mid_channels, final_channels * 4, kernel_size=1)
-        self.up0b_ps = nn.PixelShuffle(2)
+        self.up0b_conv = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Conv2d(mid_channels, final_channels, kernel_size=3, padding=1)
+        )
         self.dec0b = ResidualBlock(final_channels, final_channels)
         
         # Head
@@ -136,28 +148,28 @@ class ConvNeXtUNet(nn.Module):
         
         # 3. Decoder
         # Up3
-        d3 = self.up3_ps(self.up3_conv(f3))
+        d3 = self.up3_conv(f3)
         d3 = self._pad_to_match(d3, f2)
         d3 = torch.cat([d3, f2], dim=1)
         d3 = self.dec3(d3)
         
         # Up2
-        d2 = self.up2_ps(self.up2_conv(d3))
+        d2 = self.up2_conv(d3)
         d2 = self._pad_to_match(d2, f1)
         d2 = torch.cat([d2, f1], dim=1)
         d2 = self.dec2(d2)
         
         # Up1
-        d1 = self.up1_ps(self.up1_conv(d2))
+        d1 = self.up1_conv(d2)
         d1 = self._pad_to_match(d1, f0)
         d1 = torch.cat([d1, f0], dim=1)
         d1 = self.dec1(d1)
         
         # Up0 (Recuperar resolución original)
-        d0 = self.up0a_ps(self.up0a_conv(d1))
+        d0 = self.up0a_conv(d1)
         d0 = self.dec0a(d0)
         
-        d0 = self.up0b_ps(self.up0b_conv(d0))
+        d0 = self.up0b_conv(d0)
         # Ajuste final si es necesario para coincidir con input original
         if d0.shape[-2:] != x.shape[-2:]:
             d0 = self._pad_to_match(d0, x)
