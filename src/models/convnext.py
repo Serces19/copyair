@@ -11,7 +11,7 @@ from typing import List
 
 class ResidualBlock(nn.Module):
     """Bloque Residual para el Decoder"""
-    def __init__(self, in_channels, out_channels, activation='relu'):
+    def __init__(self, in_channels, out_channels, activation='gelu'):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
@@ -30,7 +30,7 @@ class ResidualBlock(nn.Module):
     def _get_activation(self, name):
         if name == 'relu': return nn.ReLU(inplace=True)
         if name == 'gelu': return nn.GELU()
-        return nn.ReLU(inplace=True)
+        return nn.GELU() # Default to GELU
 
     def forward(self, x):
         return self.act(self.conv2(self.act(self.bn1(self.conv1(x)))) + self.shortcut(x))
@@ -40,6 +40,11 @@ class ConvNeXtUNet(nn.Module):
     """
     ConvNeXt U-Net usando backbone de `timm`.
     Soporta pesos pre-entrenados ImageNet-22K (fb_in22k).
+    
+    Mejoras:
+    - Resize-Convolution (Nearest Neighbor + Conv) para nitidez.
+    - Global Skip Connection (Residual Learning).
+    - Activaciones GELU consistentes.
     """
     def __init__(
         self,
@@ -48,12 +53,11 @@ class ConvNeXtUNet(nn.Module):
         out_channels: int = 3,
         pretrained: bool = True,
         drop_path_rate: float = 0.0,
-        use_transpose: bool = False # Ignorado, usamos PixelShuffle
+        use_transpose: bool = False # Ignorado
     ):
         super().__init__()
         
         # 1. Encoder (timm)
-        # features_only=True devuelve una lista de feature maps
         self.encoder = timm.create_model(
             backbone_name,
             pretrained=pretrained,
@@ -62,68 +66,59 @@ class ConvNeXtUNet(nn.Module):
             in_chans=in_channels
         )
         
-        # Obtener canales de las features dinámicamente
-        # ConvNeXt suele devolver 4 features con strides 4, 8, 16, 32
+        # Obtener canales dinámicamente
         with torch.no_grad():
             dummy = torch.randn(1, in_channels, 224, 224)
             features = self.encoder(dummy)
             dims = [f.shape[1] for f in features]
-            # dims[0]: stride 4
-            # dims[1]: stride 8
-            # dims[2]: stride 16
-            # dims[3]: stride 32
             
         self.dims = dims
         
         # 2. Decoder
-        # Bottleneck es la última feature (dims[3])
-        
-        # Usaremos Upsample (bilinear) + Conv para evitar checkerboard artifacts
-        # (Resize-Convolution)
+        # Usamos Nearest Neighbor Upsample para preservar bordes (crispness)
         
         # Up3: dims[3] -> dims[2] size
         self.up3_conv = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(dims[3], dims[2], kernel_size=3, padding=1)
         )
-        self.dec3 = ResidualBlock(dims[2] + dims[2], dims[2])
+        self.dec3 = ResidualBlock(dims[2] + dims[2], dims[2], activation='gelu')
         
         # Up2: dims[2] -> dims[1] size
         self.up2_conv = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(dims[2], dims[1], kernel_size=3, padding=1)
         )
-        self.dec2 = ResidualBlock(dims[1] + dims[1], dims[1])
+        self.dec2 = ResidualBlock(dims[1] + dims[1], dims[1], activation='gelu')
         
         # Up1: dims[1] -> dims[0] size
         self.up1_conv = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(dims[1], dims[0], kernel_size=3, padding=1)
         )
-        self.dec1 = ResidualBlock(dims[0] + dims[0], dims[0])
+        self.dec1 = ResidualBlock(dims[0] + dims[0], dims[0], activation='gelu')
         
-        # Up0: dims[0] (stride 4) -> Original size (stride 1)
-        # Necesitamos subir x4. Lo hacemos en dos pasos x2.
+        # Up0: dims[0] -> Original size
         
         # Paso 1: stride 4 -> stride 2
         mid_channels = dims[0] // 2
         self.up0a_conv = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(dims[0], mid_channels, kernel_size=3, padding=1)
         )
-        self.dec0a = ResidualBlock(mid_channels, mid_channels)
+        self.dec0a = ResidualBlock(mid_channels, mid_channels, activation='gelu')
         
         # Paso 2: stride 2 -> stride 1
         final_channels = mid_channels // 2
         self.up0b_conv = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),
+            nn.Upsample(scale_factor=2, mode='nearest'),
             nn.Conv2d(mid_channels, final_channels, kernel_size=3, padding=1)
         )
-        self.dec0b = ResidualBlock(final_channels, final_channels)
+        self.dec0b = ResidualBlock(final_channels, final_channels, activation='gelu')
         
         # Head
         self.head = nn.Conv2d(final_channels, out_channels, kernel_size=1)
-        self.tanh = nn.Tanh()
+        # No usamos Tanh aquí porque haremos la suma residual primero
         
         # Normalización ImageNet
         self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
@@ -138,6 +133,9 @@ class ConvNeXtUNet(nn.Module):
         return x
 
     def forward(self, x):
+        # Guardar input original para Global Skip Connection
+        x_input = x
+        
         # 1. Input Handling: [-1, 1] -> ImageNet Norm
         x_norm = (x + 1) * 0.5
         x_norm = (x_norm - self.mean) / self.std
@@ -165,18 +163,24 @@ class ConvNeXtUNet(nn.Module):
         d1 = torch.cat([d1, f0], dim=1)
         d1 = self.dec1(d1)
         
-        # Up0 (Recuperar resolución original)
+        # Up0
         d0 = self.up0a_conv(d1)
         d0 = self.dec0a(d0)
         
         d0 = self.up0b_conv(d0)
-        # Ajuste final si es necesario para coincidir con input original
         if d0.shape[-2:] != x.shape[-2:]:
             d0 = self._pad_to_match(d0, x)
         d0 = self.dec0b(d0)
         
-        out = self.head(d0)
-        out = self.tanh(out)
+        # Head (Residual)
+        residual = self.head(d0)
+        
+        # Global Skip Connection: Output = Input + Residual
+        # Esto facilita aprender solo los detalles que cambian
+        out = x_input + residual
+        
+        # Clamp final para asegurar rango válido [-1, 1]
+        out = torch.clamp(out, -1.0, 1.0)
         
         return out
 
