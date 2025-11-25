@@ -124,40 +124,48 @@ class PSNRLoss(nn.Module):
 
 
 class FocalFrequencyLoss(nn.Module):
-    """
-    Convierte imágenes a frecuencia y compara sus espectros.
-    Ideal para recuperar texturas finas y poros.
-    """
-    def __init__(self, loss_weight=1.0, alpha=1.0):
+    def __init__(self, loss_weight=1.0, alpha=1.0, patch_factor=1):
         super().__init__()
         self.loss_weight = loss_weight
-        self.alpha = alpha # Factor de enfoque (cuánto castigar las frec. difíciles)
+        self.alpha = alpha
+        self.patch_factor = patch_factor
 
     def forward(self, pred, target):
-        # Normalizar de [-1, 1] a [0, 1] para estabilidad en frecuencia
-        pred_norm = (pred + 1) * 0.5
-        target_norm = (target + 1) * 0.5
-        
-        # 1. Transformada de Fourier 2D (FFT)
-        # RFFT2 es para entradas reales (imágenes)
-        pred_freq = torch.fft.rfft2(pred_norm, norm='ortho')
-        target_freq = torch.fft.rfft2(target_norm, norm='ortho')
+        # 1. Normalización de seguridad [-1, 1] -> [0, 1]
+        pred = (pred + 1) * 0.5
+        target = (target + 1) * 0.5
 
-        # 2. Extraer Magnitud (Amplitud del espectro)
+        # 2. Transformada de Fourier (RFFT2)
+        # norm='ortho' es importante para conservar la energía unitaria
+        pred_freq = torch.fft.rfft2(pred, norm='ortho')
+        target_freq = torch.fft.rfft2(target, norm='ortho')
+
+        # 3. Extraer Magnitud
         pred_mag = torch.abs(pred_freq)
         target_mag = torch.abs(target_freq)
 
-        # 3. Calcular la diferencia logarítmica (mejor estabilidad numérica)
-        # Se suma un epsilon pequeño para evitar log(0)
-        diff = torch.abs(pred_mag - target_mag) ** 2
-        
-        # 4. Focal Weighting (Matriz dinámica de pesos)
-        # Las frecuencias donde el error es grande reciben más peso
-        weight = diff / (diff.mean() + 1e-8) # Normalización
-        weight = weight ** self.alpha # Enfoque
+        # --- CORRECCIÓN CRÍTICA ---
+        # Usamos logaritmo para comprimir el rango dinámico.
+        # Sumamos 1e-8 para evitar log(0).
+        pred_mag = torch.log(pred_mag + 1e-8)
+        target_mag = torch.log(target_mag + 1e-8)
 
-        # 5. Pérdida final ponderada
+        # 4. Calcular diferencia (MSE en espacio logarítmico)
+        diff = (pred_mag - target_mag) ** 2
+
+        # 5. Focal Weighting (Matriz dinámica de pesos)
+        # Ahora el 'mean' es estable porque estamos en espacio log
+        weight = diff / (diff.mean() + 1e-8) 
+        
+        # Opcional: Clampear el peso para evitar explosiones extremas
+        # Si alpha > 1, esto es útil para evitar artefactos.
+        weight = torch.clamp(weight, min=0, max=50) 
+        
+        weight = weight ** self.alpha
+
+        # 6. Pérdida final
         loss = (diff * weight).mean()
+        
         return loss * self.loss_weight
 
 

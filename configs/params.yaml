@@ -24,7 +24,7 @@ model:
   # Parámetros generales
   in_channels: 3
   out_channels: 3
-  base_channels: 128  # Solo para UNet
+  base_channels: 64  # Solo para UNet
   activation: "mish"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
   
   # Para ConvNeXt: drop_path_rate (regularización)
@@ -45,7 +45,7 @@ training:
   
   # Memory Optimization
   mixed_precision: true  # Automatic Mixed Precision (50% menos VRAM, 2-3x más rápido)
-  gradient_accumulation_steps: 2  # Acumular gradientes (1 = desactivado, 2+ = simula batch más grande)
+  gradient_accumulation_steps: 1  # Acumular gradientes (1 = desactivado, 2+ = simula batch más grande)
   clear_cache_every_n_epochs: 10  # Limpiar cache CUDA cada N épocas (evita fragmentación)
   
   # Optimizador
