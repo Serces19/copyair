@@ -129,6 +129,15 @@ class UNet(nn.Module):
         self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
 
+    def _pad_to_match(self, x, target):
+        """Pad x to match target spatial dimensions."""
+        if x.shape[-2:] != target.shape[-2:]:
+            diffY = target.size()[2] - x.size()[2]
+            diffX = target.size()[3] - x.size()[3]
+            x = F.pad(x, [diffX // 2, diffX - diffX // 2,
+                          diffY // 2, diffY - diffY // 2])
+        return x
+
     def forward(self, x):
         # 1. Input Handling: [-1, 1] -> ImageNet Norm
         # Denormalize [-1, 1] -> [0, 1]
@@ -149,27 +158,37 @@ class UNet(nn.Module):
         # 3. Decoder
         # Up4: e4 -> e3 size
         d4 = self.up4_ps(self.up4_conv(e4)) # (B, 256, H/16, W/16)
+        d4 = self._pad_to_match(d4, e3)
         d4 = torch.cat([d4, e3], dim=1)     # (B, 512, ...)
         d4 = self.dec4(d4)                  # (B, 256, ...)
         
         # Up3: d4 -> e2 size
         d3 = self.up3_ps(self.up3_conv(d4)) # (B, 128, H/8, W/8)
+        d3 = self._pad_to_match(d3, e2)
         d3 = torch.cat([d3, e2], dim=1)     # (B, 256, ...)
         d3 = self.dec3(d3)                  # (B, 128, ...)
         
         # Up2: d3 -> e1 size
         d2 = self.up2_ps(self.up2_conv(d3)) # (B, 64, H/4, W/4)
+        d2 = self._pad_to_match(d2, e1)
         d2 = torch.cat([d2, e1], dim=1)     # (B, 128, ...)
         d2 = self.dec2(d2)                  # (B, 64, ...)
         
         # Up1: d2 -> e0 size
         d1 = self.up1_ps(self.up1_conv(d2)) # (B, 64, H/2, W/2)
         # Nota: e0 tiene 64 canales.
+        d1 = self._pad_to_match(d1, e0)
         d1 = torch.cat([d1, e0], dim=1)     # (B, 128, ...)
         d1 = self.dec1(d1)                  # (B, 64, ...)
         
         # Up0: d1 -> Original size
         d0 = self.up0_ps(self.up0_conv(d1)) # (B, 32, H, W)
+        # Puede que necesitemos padding final si el input original era impar
+        # Pero d0 va directo a dec0 y final, no concatena con nada.
+        # Sin embargo, si queremos que output sea == input size:
+        if d0.shape[-2:] != x.shape[-2:]:
+             d0 = self._pad_to_match(d0, x)
+             
         d0 = self.dec0(d0)
         
         # Output
