@@ -316,7 +316,7 @@ def train(config: dict, device: torch.device):
                 # Registrar métricas de entrenamiento en MLflow
                 # Solo registramos la pérdida total para evitar ruido
                 mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
-                mlflow.log_metric('time/train_last', train_time, step=epoch)
+                mlflow.log_metric('time/train_duration', train_time, step=epoch)
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
@@ -328,7 +328,7 @@ def train(config: dict, device: torch.device):
                     val_count_since_report += 1
                     # Solo registramos la pérdida total
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
-                    mlflow.log_metric('time/val_last', val_time, step=epoch)
+                    mlflow.log_metric('time/val_duration', val_time, step=epoch)
                     logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
                 else:
                     val_metrics = None
@@ -377,7 +377,7 @@ def train(config: dict, device: torch.device):
                             os.unlink(f.name)
                         viz_time = time.time() - viz_start
                         viz_time_sum += viz_time
-                        mlflow.log_metric('time/visualization_last', viz_time, step=epoch)
+                        mlflow.log_metric('time/viz_duration', viz_time, step=epoch)
                         
                         logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
                     except Exception as e:
@@ -443,34 +443,12 @@ def train(config: dict, device: torch.device):
                     torch.save(checkpoint_data, ckpt_path)
                     mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
 
-                # Final de epoch: acumular tiempo total y, si toca, reportar promedios
+                # Final de epoch: acumular tiempo total
                 epoch_time = time.time() - epoch_start
-                epoch_time_sum += epoch_time
-                count_since_report += 1
-
-                # Reportar y resetear acumuladores cada `timing_report_interval` epochs
-                if count_since_report >= timing_report_interval:
-                    avg_epoch = epoch_time_sum / count_since_report
-                    avg_train = train_time_sum / count_since_report if count_since_report > 0 else 0.0
-                    avg_val = (val_time_sum / val_count_since_report) if val_count_since_report > 0 else 0.0
-                    avg_viz = (viz_time_sum / (count_since_report // 100)) if viz_time_sum > 0 else 0.0
-
-                    logger.info(f"Tiempo promedio (últimas {count_since_report} epochs): epoch={avg_epoch:.3f}s train={avg_train:.3f}s val={avg_val:.3f}s viz_avg={avg_viz:.3f}s")
-                    try:
-                        mlflow.log_metric('time/epoch_avg', avg_epoch, step=epoch)
-                        mlflow.log_metric('time/train_epoch_avg', avg_train, step=epoch)
-                        mlflow.log_metric('time/val_epoch_avg', avg_val, step=epoch)
-                        mlflow.log_metric('time/visualization_avg', avg_viz, step=epoch)
-                    except Exception as e:
-                        logger.warning(f"No se pudieron loggear tiempos en MLflow: {e}")
-
-                    # Reset accumulators
-                    epoch_time_sum = 0.0
-                    train_time_sum = 0.0
-                    val_time_sum = 0.0
-                    viz_time_sum = 0.0
-                    count_since_report = 0
-                    val_count_since_report = 0
+                mlflow.log_metric('time/epoch_duration', epoch_time, step=epoch)
+                
+                # Reportar tiempos en log (opcional, para debug en consola)
+                logger.info(f"Tiempos: Epoch={epoch_time:.2f}s | Train={train_time:.2f}s")
 
             logger.info("¡Entrenamiento completado!")
 
