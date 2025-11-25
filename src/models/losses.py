@@ -22,12 +22,77 @@ class L1Loss(nn.Module):
 
 # --- Pérdida perceptual con LPIPS ---
 class PerceptualLoss(nn.Module):
+    """
+    Pérdida perceptual usando LPIPS.
+    
+    Input:
+        - Imágenes en rango [-1, 1] (comportamiento por defecto de torchmetrics con normalize=False).
+        - Shape: (N, 3, H, W)
+    """
     def __init__(self, net='alex', device='cuda'):
         super().__init__()
-        self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net).to(device)
+        self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net, normalize=False).to(device)
 
     def forward(self, pred, target):
         return self.lpips(pred, target)
+
+
+# --- Pérdida DreamSim ---
+class DreamSimLoss(nn.Module):
+    """
+    Pérdida perceptual usando DreamSim (OpenCLIP-ViT).
+    
+    Maneja internamente:
+    1. Conversión de rango [-1, 1] -> [0, 1]
+    2. Resize a 224x224 (requerido por ViT)
+    3. Normalización específica de DreamSim (si es necesaria, aunque el modelo suele manejarla)
+    """
+    def __init__(self, device='cuda'):
+        super().__init__()
+        if dreamsim is None:
+            raise ImportError("La librería 'dreamsim' no está instalada.")
+        
+        print("Cargando DreamSim (OpenCLIP-ViT)...")
+        # dreamsim(pretrained=True) devuelve (model, preprocess)
+        # Usamos solo el modelo y hacemos el pre-procesamiento manualmente para tener control
+        self.model, _ = dreamsim.dreamsim(pretrained=True, dreamsim_type='open_clip_vitb32')
+        self.model = self.model.to(device).eval()
+        
+        # Normalización estándar de ImageNet (usada por muchos modelos ViT/CLIP)
+        # DreamSim suele esperar [0, 1], pero internamente puede normalizar.
+        # Para seguridad, nos aseguramos de pasar [0, 1] limpio.
+
+    def forward(self, pred, target):
+        """
+        Args:
+            pred: Tensor (N, 3, H, W) en rango [-1, 1]
+            target: Tensor (N, 3, H, W) en rango [-1, 1]
+        """
+        # 1. Denormalizar [-1, 1] -> [0, 1]
+        pred_01 = (pred + 1.0) * 0.5
+        target_01 = (target + 1.0) * 0.5
+        
+        # Clamp para evitar valores fuera de rango por errores numéricos
+        pred_01 = torch.clamp(pred_01, 0.0, 1.0)
+        target_01 = torch.clamp(target_01, 0.0, 1.0)
+        
+        # 2. Resize a 224x224 (Requisito de OpenCLIP-ViT)
+        # Usamos interpolación bilineal con antialias
+        if pred_01.shape[-1] != 224 or pred_01.shape[-2] != 224:
+            pred_224 = F.interpolate(pred_01, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+            target_224 = F.interpolate(target_01, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+        else:
+            pred_224 = pred_01
+            target_224 = target_01
+
+        # 3. Calcular pérdida
+        # DreamSim devuelve la distancia.
+        loss = self.model(pred_224, target_224)
+        
+        # Si devuelve un tensor por imagen, promediamos
+        if loss.ndim > 0:
+            return loss.mean()
+        return loss
 
 
 # --- Pérdida Laplaciana para bordes ---
@@ -207,15 +272,12 @@ class HybridLoss(nn.Module):
             
         # Inicializar DreamSim si se usa
         if self.lambda_dreamsim > 0:
-            if dreamsim is None:
+            try:
+                self.dreamsim_loss = DreamSimLoss(device=device)
+            except ImportError:
                 print("⚠ DreamSim no está instalado. Ignorando pérdida DreamSim.")
                 self.dreamsim_loss = None
                 self.lambda_dreamsim = 0
-            else:
-                print("Cargando DreamSim (OpenCLIP-ViT)...")
-                # La API correcta es dreamsim(pretrained=True)
-                self.dreamsim_loss, _ = dreamsim.dreamsim(pretrained=True, dreamsim_type='open_clip_vitb32')
-                self.dreamsim_loss = self.dreamsim_loss.to(device).eval()
         else:
             self.dreamsim_loss = None
     
@@ -259,22 +321,7 @@ class HybridLoss(nn.Module):
             
         # Agregar DreamSim si está habilitado
         if self.lambda_dreamsim > 0 and self.dreamsim_loss is not None:
-            # DreamSim espera RGB estándar [0, 1] y tamaño 224x224
-            # 1. Denormalizar [-1, 1] -> [0, 1]
-            pred_dream = (pred + 1.0) / 2.0
-            target_dream = (target + 1.0) / 2.0
-            
-            pred_dream = torch.clamp(pred_dream, 0.0, 1.0)
-            target_dream = torch.clamp(target_dream, 0.0, 1.0)
-            
-            # 2. Resize a 224x224 (Optimización y requisito de OpenCLIP)
-            if pred_dream.shape[-1] != 224 or pred_dream.shape[-2] != 224:
-                 pred_dream = F.interpolate(pred_dream, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
-                 target_dream = F.interpolate(target_dream, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
-
-            dream = self.dreamsim_loss(pred_dream, target_dream)
-            if dream.ndim > 0:
-                dream = dream.mean()
+            dream = self.dreamsim_loss(pred, target)
             total_loss += self.lambda_dreamsim * dream
             metrics['dreamsim'] = dream
             

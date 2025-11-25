@@ -333,8 +333,8 @@ def train(config: dict, device: torch.device):
                 else:
                     val_metrics = None
 
-                # Visualización de validación cada 100 épocas
-                if (epoch + 1) % 100 == 0:
+                # Visualización de validación cada 200 épocas
+                if (epoch + 1) % 200 == 0:
                     try:
                         viz_start = time.time()
                         # Obtener un batch de validación
