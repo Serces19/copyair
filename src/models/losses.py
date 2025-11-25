@@ -209,21 +209,18 @@ class FocalFrequencyLoss(nn.Module):
         pred_mag = torch.abs(pred_freq)
         target_mag = torch.abs(target_freq)
 
-        # --- CORRECCIÓN CRÍTICA ---
-        # Usamos logaritmo para comprimir el rango dinámico.
-        # Sumamos 1e-8 para evitar log(0).
-        pred_mag = torch.log(pred_mag + 1e-8)
-        target_mag = torch.log(target_mag + 1e-8)
-
-        # 4. Calcular diferencia (MSE en espacio logarítmico)
+        # --- CORRECCIÓN ---
+        # Usamos magnitud lineal en lugar de logarítmica para evitar gradientes explosivos
+        # y artefactos de color (solarización).
+        
+        # 4. Calcular diferencia (MSE en espacio de frecuencias lineal)
         diff = (pred_mag - target_mag) ** 2
 
         # 5. Focal Weighting (Matriz dinámica de pesos)
-        # Ahora el 'mean' es estable porque estamos en espacio log
+        # Definimos cuán difícil es cada frecuencia basado en el error relativo
         weight = diff / (diff.mean() + 1e-8) 
         
-        # Opcional: Clampear el peso para evitar explosiones extremas
-        # Si alpha > 1, esto es útil para evitar artefactos.
+        # Clampear el peso para estabilidad numérica
         weight = torch.clamp(weight, min=0, max=50) 
         
         weight = weight ** self.alpha
