@@ -231,8 +231,24 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
     return model, optimizer, scheduler, loss_fn
 
 
+import signal
+
+class GracefulKiller:
+    kill_now = False
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        self.kill_now = True
+        logger.info("\n🛑 Señal de interrupción recibida. Terminando después de esta época...")
+
+
 def train(config: dict, device: torch.device):
     """Loop principal de entrenamiento"""
+    
+    # Inicializar killer para manejo de señales
+    killer = GracefulKiller()
 
     # Datos
     train_loader, val_loader = setup_data(config, device)
@@ -292,16 +308,22 @@ def train(config: dict, device: torch.device):
             min_delta = 0.02
             epsilon = 1e-8
 
-            # Timing / profiling: acumuladores para promedios (no calcular/mostrar cada epoch)
-            timing_report_interval = config.get('logging', {}).get('timing_report_interval', 100)
-            epoch_time_sum = 0.0
-            train_time_sum = 0.0
-            val_time_sum = 0.0
-            viz_time_sum = 0.0
-            count_since_report = 0
-            val_count_since_report = 0
-
             for epoch in range(config['training']['epochs']):
+                # Verificar si debemos detenernos ANTES de empezar la época
+                if killer.kill_now:
+                    logger.info("🛑 Deteniendo entrenamiento por señal de usuario (Ctrl+C).")
+                    # Guardar checkpoint de emergencia
+                    ckpt_path = Path(config['data']['models_dir']) / f'interrupted_checkpoint_epoch_{epoch}.pth'
+                    checkpoint_data = {
+                        'model_state_dict': model.state_dict(),
+                        'model_config': config['model'],
+                        'architecture': config['model'].get('architecture', 'unet'),
+                        'epoch': epoch,
+                    }
+                    torch.save(checkpoint_data, ckpt_path)
+                    mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
+                    break
+
                 # Medir tiempo total de la época y tiempo de entrenamiento por separado
                 epoch_start = time.time()
 
@@ -311,7 +333,6 @@ def train(config: dict, device: torch.device):
                     model, train_loader, optimizer, loss_fn, device, epoch
                 )
                 train_time = time.time() - t_train_start
-                train_time_sum += train_time
 
                 # Registrar métricas de entrenamiento en MLflow
                 # Solo registramos la pérdida total para evitar ruido
@@ -324,8 +345,6 @@ def train(config: dict, device: torch.device):
                     t_val_start = time.time()
                     val_metrics = validate(model, val_loader, loss_fn, device)
                     val_time = time.time() - t_val_start
-                    val_time_sum += val_time
-                    val_count_since_report += 1
                     # Solo registramos la pérdida total
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                     mlflow.log_metric('time/val_duration', val_time, step=epoch)
@@ -376,7 +395,6 @@ def train(config: dict, device: torch.device):
                             import os
                             os.unlink(f.name)
                         viz_time = time.time() - viz_start
-                        viz_time_sum += viz_time
                         mlflow.log_metric('time/viz_duration', viz_time, step=epoch)
                         
                         logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
@@ -449,6 +467,11 @@ def train(config: dict, device: torch.device):
                 
                 # Reportar tiempos en log (opcional, para debug en consola)
                 logger.info(f"Tiempos: Epoch={epoch_time:.2f}s | Train={train_time:.2f}s")
+                
+                # Verificar killer al FINAL de la época también
+                if killer.kill_now:
+                    logger.info("🛑 Deteniendo entrenamiento por señal de usuario (Ctrl+C).")
+                    break
 
             logger.info("¡Entrenamiento completado!")
 
@@ -460,7 +483,14 @@ def train(config: dict, device: torch.device):
 
     else:
         # Si MLflow está deshabilitado, solo corre el loop normal
+        # También agregamos soporte para killer aquí
+        killer = GracefulKiller()
+        
         for epoch in range(config['training']['epochs']):
+            if killer.kill_now:
+                logger.info("🛑 Deteniendo entrenamiento por señal de usuario (Ctrl+C).")
+                break
+                
             train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch)
             val_metrics = validate(model, val_loader, loss_fn, device)
             scheduler.step()
@@ -470,7 +500,6 @@ def train(config: dict, device: torch.device):
                 f"Val Loss: {val_metrics['val_loss']:.4f} | "
                 f"PSNR: {val_metrics['psnr']:.2f}"
             )
-
 
 
 def main():
