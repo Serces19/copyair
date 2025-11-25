@@ -10,6 +10,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
+import json
+import time
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -261,44 +263,72 @@ def train(config: dict, device: torch.device):
         # Iniciar run de MLflow y registrar parámetros
         run_name = f"{config['model'].get('architecture', 'unet')}_{config['training'].get('optimizer', {}).get('type', 'adam')}"
         with mlflow.start_run(run_name=run_name):
-            # Log params
-            mlflow.log_param('model.architecture', config['model'].get('architecture', 'unet'))
-            mlflow.log_param('model.activation', config['model'].get('activation', 'relu'))
-            mlflow.log_param('model.base_channels', config['model'].get('base_channels'))
-            
-            mlflow.log_param('training.batch_size', config['training'].get('batch_size'))
-            mlflow.log_param('training.epochs', config['training'].get('epochs'))
-            mlflow.log_param('training.learning_rate', config['training'].get('learning_rate'))
-            mlflow.log_param('training.optimizer', config['training'].get('optimizer', {}).get('type', 'adam'))
-            
-            mlflow.log_param('loss.lambda_l1', config['loss'].get('lambda_l1'))
-            mlflow.log_param('loss.lambda_ssim', config['loss'].get('lambda_ssim'))
-            mlflow.log_param('loss.lambda_perceptual', config['loss'].get('lambda_perceptual'))
-            mlflow.log_param('loss.lambda_laplacian', config['loss'].get('lambda_laplacian'))
-            mlflow.log_param('loss.lambda_ffl', config['loss'].get('lambda_ffl'))
-            mlflow.log_param('loss.lambda_dreamsim', config['loss'].get('lambda_dreamsim'))
+            # Log all static params from the loaded config (flatten nested dicts)
+            def _flatten(d: dict, parent_key: str = '', sep: str = '.') -> dict:
+                items = {}
+                for k, v in d.items():
+                    new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                    if isinstance(v, dict):
+                        items.update(_flatten(v, new_key, sep=sep))
+                    else:
+                        # Convert non-primitive values to JSON strings so MLflow can store them
+                        if isinstance(v, (list, tuple, dict)):
+                            try:
+                                items[new_key] = json.dumps(v)
+                            except Exception:
+                                items[new_key] = str(v)
+                        else:
+                            items[new_key] = v
+                return items
 
-            mlflow.log_param('data.input_dir', config['data'].get('input_dir'))
+            try:
+                params_to_log = _flatten(config)
+                # mlflow.log_params expects string/int/float values; convert None to 'null'
+                safe_params = {k: (json.dumps(v) if isinstance(v, (list, dict, tuple)) else (v if v is not None else 'null')) for k, v in params_to_log.items()}
+                mlflow.log_params(safe_params)
+            except Exception as e:
+                logger.warning(f"No se pudieron registrar todos los parámetros en MLflow: {e}")
 
             min_delta = 0.02
             epsilon = 1e-8
 
+            # Timing / profiling: acumuladores para promedios (no calcular/mostrar cada epoch)
+            timing_report_interval = config.get('logging', {}).get('timing_report_interval', 100)
+            epoch_time_sum = 0.0
+            train_time_sum = 0.0
+            val_time_sum = 0.0
+            viz_time_sum = 0.0
+            count_since_report = 0
+            val_count_since_report = 0
+
             for epoch in range(config['training']['epochs']):
-                # Entrenamiento
+                # Medir tiempo total de la época y tiempo de entrenamiento por separado
+                epoch_start = time.time()
+
+                # Entrenamiento (medimos solo el tiempo de la función train_epoch)
+                t_train_start = time.time()
                 train_metrics = train_epoch(
                     model, train_loader, optimizer, loss_fn, device, epoch
                 )
+                train_time = time.time() - t_train_start
+                train_time_sum += train_time
 
                 # Registrar métricas de entrenamiento en MLflow
                 # Solo registramos la pérdida total para evitar ruido
                 mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
+                mlflow.log_metric('time/train_last', train_time, step=epoch)
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
                 if epoch == 0 or epoch % val_interval == 0:
+                    t_val_start = time.time()
                     val_metrics = validate(model, val_loader, loss_fn, device)
+                    val_time = time.time() - t_val_start
+                    val_time_sum += val_time
+                    val_count_since_report += 1
                     # Solo registramos la pérdida total
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+                    mlflow.log_metric('time/val_last', val_time, step=epoch)
                     logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
                 else:
                     val_metrics = None
@@ -306,6 +336,7 @@ def train(config: dict, device: torch.device):
                 # Visualización de validación cada 100 épocas
                 if (epoch + 1) % 100 == 0:
                     try:
+                        viz_start = time.time()
                         # Obtener un batch de validación
                         val_batch = next(iter(val_loader))
                         input_img = val_batch['input'][:1].to(device)  # Solo primera imagen
@@ -344,6 +375,9 @@ def train(config: dict, device: torch.device):
                             mlflow.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
                             import os
                             os.unlink(f.name)
+                        viz_time = time.time() - viz_start
+                        viz_time_sum += viz_time
+                        mlflow.log_metric('time/visualization_last', viz_time, step=epoch)
                         
                         logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
                     except Exception as e:
@@ -408,6 +442,35 @@ def train(config: dict, device: torch.device):
                     }
                     torch.save(checkpoint_data, ckpt_path)
                     mlflow.log_artifact(str(ckpt_path), artifact_path='checkpoints')
+
+                # Final de epoch: acumular tiempo total y, si toca, reportar promedios
+                epoch_time = time.time() - epoch_start
+                epoch_time_sum += epoch_time
+                count_since_report += 1
+
+                # Reportar y resetear acumuladores cada `timing_report_interval` epochs
+                if count_since_report >= timing_report_interval:
+                    avg_epoch = epoch_time_sum / count_since_report
+                    avg_train = train_time_sum / count_since_report if count_since_report > 0 else 0.0
+                    avg_val = (val_time_sum / val_count_since_report) if val_count_since_report > 0 else 0.0
+                    avg_viz = (viz_time_sum / (count_since_report // 100)) if viz_time_sum > 0 else 0.0
+
+                    logger.info(f"Tiempo promedio (últimas {count_since_report} epochs): epoch={avg_epoch:.3f}s train={avg_train:.3f}s val={avg_val:.3f}s viz_avg={avg_viz:.3f}s")
+                    try:
+                        mlflow.log_metric('time/epoch_avg', avg_epoch, step=epoch)
+                        mlflow.log_metric('time/train_epoch_avg', avg_train, step=epoch)
+                        mlflow.log_metric('time/val_epoch_avg', avg_val, step=epoch)
+                        mlflow.log_metric('time/visualization_avg', avg_viz, step=epoch)
+                    except Exception as e:
+                        logger.warning(f"No se pudieron loggear tiempos en MLflow: {e}")
+
+                    # Reset accumulators
+                    epoch_time_sum = 0.0
+                    train_time_sum = 0.0
+                    val_time_sum = 0.0
+                    viz_time_sum = 0.0
+                    count_since_report = 0
+                    val_count_since_report = 0
 
             logger.info("¡Entrenamiento completado!")
 
