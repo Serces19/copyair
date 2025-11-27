@@ -238,7 +238,7 @@ class CharbonnierLoss(nn.Module):
     Más robusta que L1 y L2, converge mejor.
     Formula: sqrt((pred - target)^2 + eps^2)
     """
-    def __init__(self, eps=1e-3):
+    def __init__(self, eps=1e-5):
         super().__init__()
         self.eps = eps
 

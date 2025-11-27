@@ -92,7 +92,10 @@ def validate(
     device: torch.device
 ) -> Dict[str, float]:
     """
-    Valida el modelo
+    Valida el modelo usando métricas robustas:
+    1. HybridLoss (Loss de entrenamiento)
+    2. PSNR y SSIM (Sanity Checks)
+    3. Crop-LPIPS (Métrica de textura/fidelidad en parches)
     
     Args:
         model: Modelo a validar
@@ -103,9 +106,22 @@ def validate(
     Returns:
         Diccionario con métricas de validación
     """
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+    from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+    import random
+
     model.eval()
     accumulated_metrics = {}
     num_batches = 0
+    
+    # Inicializar métricas de validación
+    # Rango de datos [-1, 1] -> data_range = 2.0
+    psnr_metric = PeakSignalNoiseRatio(data_range=2.0).to(device)
+    ssim_metric = StructuralSimilarityIndexMeasure(data_range=2.0).to(device)
+    # LPIPS espera [-1, 1] si normalize=False
+    lpips_metric = LearnedPerceptualImagePatchSimilarity(net_type='alex', normalize=False).to(device)
+    
+    logger.info("Iniciando validación con métricas extendidas (PSNR, SSIM, Crop-LPIPS)...")
     
     with torch.no_grad():
         for batch in val_loader:
@@ -114,14 +130,50 @@ def validate(
             
             output = model(input_img)
             
-            # Siempre HybridLoss
+            # 1. Pérdida Híbrida (la misma que train)
             losses_dict = loss_fn(output, target_img)
             
-            # Acumular métricas
+            # Acumular métricas de loss
             for k, v in losses_dict.items():
                 if isinstance(v, torch.Tensor):
                     v = v.item()
                 accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
+            
+            # 2. Métricas de Sanidad (PSNR, SSIM)
+            # Calculadas sobre la imagen completa
+            psnr_val = psnr_metric(output, target_img).item()
+            ssim_val = ssim_metric(output, target_img).item()
+            
+            accumulated_metrics['psnr'] = accumulated_metrics.get('psnr', 0.0) + psnr_val
+            accumulated_metrics['ssim'] = accumulated_metrics.get('ssim', 0.0) + ssim_val
+            
+            # 3. Crop-LPIPS (Validación de Textura)
+            # Extraer 5 parches aleatorios de 256x256
+            n_crops = 5
+            crop_size = 256
+            batch_lpips = 0.0
+            
+            B, C, H, W = output.shape
+            
+            # Si la imagen es más pequeña que el crop, usar la imagen entera
+            if H < crop_size or W < crop_size:
+                batch_lpips = lpips_metric(output, target_img).item()
+            else:
+                for _ in range(n_crops):
+                    # Coordenadas aleatorias
+                    h_start = random.randint(0, H - crop_size)
+                    w_start = random.randint(0, W - crop_size)
+                    
+                    # Recortar
+                    crop_pred = output[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
+                    crop_target = target_img[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
+                    
+                    # Calcular LPIPS del parche
+                    batch_lpips += lpips_metric(crop_pred, crop_target).item()
+                
+                batch_lpips /= n_crops
+            
+            accumulated_metrics['crop_lpips'] = accumulated_metrics.get('crop_lpips', 0.0) + batch_lpips
             
             num_batches += 1
     
@@ -134,29 +186,3 @@ def validate(
     final_metrics['val_loss'] = final_metrics.get('val_total', 0.0)
     
     return final_metrics
-
-
-def compute_metrics(output: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
-    """
-    Calcula métricas de evaluación: MSE, PSNR, SSIM
-    Asume que output y target están en rango [-1, 1]
-    """
-    mse = torch.mean((output - target) ** 2)
-    psnr = 20 * torch.log10(2.0 / torch.sqrt(mse))  # max_val = 2.0 para [-1, 1]
-    
-    # SSIM simplificado
-    mean_output = torch.mean(output)
-    mean_target = torch.mean(target)
-    
-    var_output = torch.mean((output - mean_output) ** 2)
-    var_target = torch.mean((target - mean_target) ** 2)
-    cov = torch.mean((output - mean_output) * (target - mean_target))
-    
-    ssim = ((2 * mean_output * mean_target + 0.01) * (2 * cov + 0.03)) / \
-           ((mean_output ** 2 + mean_target ** 2 + 0.01) * (var_output + var_target + 0.03))
-    
-    return {
-        'mse': mse.item(),
-        'psnr': psnr.item(),
-        'ssim': ssim.item()
-    }

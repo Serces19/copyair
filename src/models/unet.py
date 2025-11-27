@@ -5,28 +5,55 @@ from torchvision import models
 from typing import Optional, Union
 
 
+def icnr_init(conv_layer, scale=2, initializer=nn.init.kaiming_normal_):
+    """
+    ICNR initialization para eliminar artefactos de ajedrez en PixelShuffle.
+    
+    Inicializa una capa Conv2d que precede a PixelShuffle de manera que
+    actúe como un upsampler suave desde el inicio del entrenamiento.
+    
+    Args:
+        conv_layer: Capa nn.Conv2d a inicializar
+        scale: Factor de upsampling (generalmente 2 para PixelShuffle(2))
+        initializer: Función de inicialización base (default: Kaiming)
+    """
+    ni, nf, h, w = conv_layer.weight.shape
+    sub_kernel = torch.zeros([ni, nf // (scale ** 2), h, w])
+    initializer(sub_kernel)
+    
+    # Repetir el sub-kernel para cada posición del PixelShuffle
+    kernel = sub_kernel.repeat_interleave(scale ** 2, dim=1)
+    conv_layer.weight.data.copy_(kernel)
+    
+    if conv_layer.bias is not None:
+        conv_layer.bias.data.zero_()
+
+
 class ResidualBlock(nn.Module):
-    """Bloque Residual para el Decoder"""
-    def __init__(self, in_channels, out_channels, activation='relu'):
+    """Bloque Residual para el Decoder con BatchNorm opcional"""
+    def __init__(self, in_channels, out_channels, activation='relu', use_batchnorm=True):
         super().__init__()
+        self.use_batchnorm = use_batchnorm
+        
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.bn1 = nn.BatchNorm2d(out_channels) if use_batchnorm else nn.Identity()
         self.act = self._get_activation(activation)
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.bn2 = nn.BatchNorm2d(out_channels) if use_batchnorm else nn.Identity()
         
         # Shortcut para igualar dimensiones si es necesario
         self.shortcut = nn.Sequential()
         if in_channels != out_channels:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=1),
-                nn.BatchNorm2d(out_channels)
-            )
+            layers = [nn.Conv2d(in_channels, out_channels, kernel_size=1)]
+            if use_batchnorm:
+                layers.append(nn.BatchNorm2d(out_channels))
+            self.shortcut = nn.Sequential(*layers)
 
     def _get_activation(self, name):
         if name == 'relu': return nn.ReLU(inplace=True)
         if name == 'leaky_relu': return nn.LeakyReLU(0.2, inplace=True)
         if name == 'gelu': return nn.GELU()
+        if name == 'silu': return nn.SiLU(inplace=True)
         return nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -48,7 +75,10 @@ class UNet(nn.Module):
     Mejoras:
     1. Encoder: ResNet34 (ImageNet weights) -> Mejor extracción de features.
     2. Decoder: PixelShuffle + ResidualBlocks -> Mejor reconstrucción y gradientes.
-    3. Input Handling: Acepta [-1, 1], convierte internamente a normalización ImageNet.
+    3. ICNR Initialization: Elimina artefactos de ajedrez en upsampling.
+    4. Activaciones suaves (GELU/SiLU): Mejores gradientes para regresión de píxeles.
+    5. BatchNorm opcional en decoder: Configurable para máxima fidelidad.
+    6. Input Handling: Acepta [-1, 1], convierte internamente a normalización ImageNet.
     """
     
     def __init__(
@@ -56,13 +86,15 @@ class UNet(nn.Module):
         in_channels: int = 3, 
         out_channels: int = 3,
         base_channels: int = 64, # No usado directamente en ResNet, pero mantenido por compatibilidad
-        activation: str = "relu",
+        activation: str = "gelu",  # Cambiado a GELU por default para mejor calidad
         use_batchnorm: bool = True,
         use_dropout: bool = False,
         dropout_p: float = 0.0,
         use_transpose: bool = False # Ignorado, usamos PixelShuffle
     ):
         super().__init__()
+        
+        self.use_batchnorm = use_batchnorm
         
         # --- Encoder (ResNet34) ---
         # Usamos weights='DEFAULT' que equivale a los mejores pesos disponibles
@@ -88,25 +120,25 @@ class UNet(nn.Module):
         # Input: 512 (enc4). Concat con 256 (enc3).
         self.up4_conv = nn.Conv2d(512, 256 * 4, kernel_size=1) # Prep for PixelShuffle
         self.up4_ps = nn.PixelShuffle(2) # 256*4 -> 256
-        self.dec4 = ResidualBlock(256 + 256, 256, activation) # 256 (up) + 256 (skip)
+        self.dec4 = ResidualBlock(256 + 256, 256, activation, use_batchnorm) # 256 (up) + 256 (skip)
         
         # Up3
         # Input: 256. Concat con 128 (enc2).
         self.up3_conv = nn.Conv2d(256, 128 * 4, kernel_size=1)
         self.up3_ps = nn.PixelShuffle(2)
-        self.dec3 = ResidualBlock(128 + 128, 128, activation)
+        self.dec3 = ResidualBlock(128 + 128, 128, activation, use_batchnorm)
         
         # Up2
         # Input: 128. Concat con 64 (enc1).
         self.up2_conv = nn.Conv2d(128, 64 * 4, kernel_size=1)
         self.up2_ps = nn.PixelShuffle(2)
-        self.dec2 = ResidualBlock(64 + 64, 64, activation)
+        self.dec2 = ResidualBlock(64 + 64, 64, activation, use_batchnorm)
         
         # Up1
         # Input: 64. Concat con 64 (enc0).
         self.up1_conv = nn.Conv2d(64, 64 * 4, kernel_size=1)
         self.up1_ps = nn.PixelShuffle(2)
-        self.dec1 = ResidualBlock(64 + 64, 64, activation)
+        self.dec1 = ResidualBlock(64 + 64, 64, activation, use_batchnorm)
         
         # Final Upsample (para recuperar resolución original tras el primer conv stride=2 y maxpool)
         # ResNet reduce x4 en las primeras capas (conv1 stride 2 + maxpool stride 2)
@@ -120,7 +152,7 @@ class UNet(nn.Module):
         
         self.up0_conv = nn.Conv2d(64, 32 * 4, kernel_size=1)
         self.up0_ps = nn.PixelShuffle(2)
-        self.dec0 = ResidualBlock(32, 32, activation)
+        self.dec0 = ResidualBlock(32, 32, activation, use_batchnorm)
         
         self.final = nn.Conv2d(32, out_channels, kernel_size=1)
         self.tanh = nn.Tanh()
@@ -128,6 +160,17 @@ class UNet(nn.Module):
         # Normalización ImageNet
         self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        
+        # Aplicar inicialización ICNR a todas las capas de upsampling
+        self._init_weights()
+    
+    def _init_weights(self):
+        """Aplica inicialización ICNR a las capas previas a PixelShuffle"""
+        icnr_init(self.up4_conv, scale=2)
+        icnr_init(self.up3_conv, scale=2)
+        icnr_init(self.up2_conv, scale=2)
+        icnr_init(self.up1_conv, scale=2)
+        icnr_init(self.up0_conv, scale=2)
 
     def _pad_to_match(self, x, target):
         """Pad x to match target spatial dimensions."""
@@ -198,19 +241,4 @@ class UNet(nn.Module):
         return out
 
 
-class UNetWithConvNeXt(nn.Module):
-    """
-    Wrapper para mantener compatibilidad si se usa en configs antiguas.
-    """
-    def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        base_channels: int = 64,
-        activation: str = "relu"
-    ):
-        super().__init__()
-        self.unet = UNet(in_channels, out_channels, base_channels, activation=activation)
-    
-    def forward(self, x):
-        return self.unet(x)
+

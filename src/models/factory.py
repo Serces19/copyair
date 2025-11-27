@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 from typing import Dict, Any
 
-from .unet import UNet, UNetWithConvNeXt
+from .unet import UNet
 from .architectures import ConvexNet, MambaIRv2, UMamba, NAFNetHD
 from .nafnet import nafnet_small, nafnet_base, nafnet_large
 from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base
@@ -37,15 +37,20 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     use_transpose = config.get('use_transpose', False)
     
     if arch == 'unet':
+        # return UNet(
+        #     in_channels, out_channels, base_channels, activation,
+        #     use_batchnorm=use_batchnorm,
+        #     use_dropout=use_dropout,
+        #     dropout_p=dropout_p,
+        #     use_transpose=use_transpose
+        # )
+  
         return UNet(
-            in_channels, out_channels, base_channels, activation,
-            use_batchnorm=use_batchnorm,
-            use_dropout=use_dropout,
-            dropout_p=dropout_p,
-            use_transpose=use_transpose
+            in_channels = in_channels,   # Igual que antes (ej. 3)
+            out_channels = out_channels, # Igual que antes (ej. 3)
+            base_dim = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
+            num_blocks = [6, 4, 4, 4]    # NUEVO: Controla la profundidad por nivel
         )
-    elif arch == 'unet_convnext':
-        return UNetWithConvNeXt(in_channels, out_channels, base_channels, activation)
     elif arch == 'convexnet':
         return ConvexNet(in_channels, out_channels, base_channels, activation)
     elif arch == 'mambairv2':

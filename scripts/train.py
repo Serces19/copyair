@@ -23,6 +23,11 @@ from src.training.train import train_epoch, validate
 from src.training.schedulers import get_scheduler
 import mlflow
 import mlflow.pytorch
+from albumentations import Normalize
+from albumentations.pytorch import ToTensorV2
+import albumentations as A
+from torch.utils.data import RandomSampler
+
 
 # Configurar logging: asegurarse de que haya un handler que imprima INFO
 root_logger = logging.getLogger()
@@ -88,10 +93,6 @@ def setup_data(config: dict, device: torch.device):
         
         # Dataset de validación (Resolución NATIVA, SIN crop, SIN resize, solo normalize)
         # Para few-shot: validamos en resolución original para ver calidad real
-        from albumentations import Normalize
-        from albumentations.pytorch import ToTensorV2
-        import albumentations as A
-        
         native_val_transform = A.Compose([
             Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255.0),
             ToTensorV2()
@@ -107,7 +108,6 @@ def setup_data(config: dict, device: torch.device):
         # Para cumplir "un frame aleatorio por epoch", usamos un Sampler o simplemente shuffle=True
         # y limitamos el loop de validación, o creamos un loader que solo devuelva 1 batch.
         # Aquí usamos RandomSampler con replacement=True y num_samples=1 para sacar 1 imagen aleatoria.
-        from torch.utils.data import RandomSampler
         val_sampler = RandomSampler(full_val_dataset, replacement=True, num_samples=1)
         
         val_loader = DataLoader(
@@ -347,10 +347,13 @@ def train(config: dict, device: torch.device):
                     t_val_start = time.time()
                     val_metrics = validate(model, val_loader, loss_fn, device)
                     val_time = time.time() - t_val_start
-                    # Solo registramos la pérdida total
+                    # Registramos todas las métricas de validación
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
+                    mlflow.log_metric('val/psnr', val_metrics['val_psnr'], step=epoch)
+                    mlflow.log_metric('val/ssim', val_metrics['val_ssim'], step=epoch)
+                    mlflow.log_metric('val/crop_lpips', val_metrics['val_crop_lpips'], step=epoch)
                     mlflow.log_metric('time/val_duration', val_time, step=epoch)
-                    logger.info(f"[Validación] Val Loss: {val_metrics['val_loss']:.4f}")
+                    logger.info(f"[Validación] Loss: {val_metrics['val_loss']:.4f} | PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS(Crop): {val_metrics['val_crop_lpips']:.4f}")
                 else:
                     val_metrics = None
 
@@ -413,7 +416,9 @@ def train(config: dict, device: torch.device):
                     logger.info(
                         f"Época {epoch + 1}/{config['training']['epochs']} | "
                         f"Train Loss: {train_metrics['loss']:.4f} | "
-                        f"Val Loss: {val_metrics['val_loss']:.4f}"
+                        f"Val Loss: {val_metrics['val_loss']:.4f} | "
+                        f"PSNR: {val_metrics['val_psnr']:.2f} | "
+                        f"LPIPS: {val_metrics['val_crop_lpips']:.4f}"
                     )
                 else:
                     logger.info(
@@ -500,7 +505,9 @@ def train(config: dict, device: torch.device):
                 f"Época {epoch + 1}/{config['training']['epochs']} | "
                 f"Train Loss: {train_metrics['loss']:.4f} | "
                 f"Val Loss: {val_metrics['val_loss']:.4f} | "
-                f"PSNR: {val_metrics['psnr']:.2f}"
+                f"PSNR: {val_metrics['val_psnr']:.2f} | "
+                f"SSIM: {val_metrics['val_ssim']:.3f} | "
+                f"LPIPS: {val_metrics['val_crop_lpips']:.4f}"
             )
 
 
