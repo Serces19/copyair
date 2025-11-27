@@ -86,7 +86,7 @@ class Up(nn.Module):
         x = self.conv(x)
         return x
 
-class ClassicUNet(nn.Module):
+class UNet(nn.Module):
     def __init__(
         self,
         in_channels=3,

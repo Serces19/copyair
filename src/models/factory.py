@@ -36,12 +36,18 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     use_transpose = config.get('use_transpose', False)
     
     if arch == 'unet':
+        # La implementación de `UNet` espera la firma:
+        # UNet(in_channels=..., out_channels=..., base_channels=..., depth=..., norm=..., activation=...)
+        # Mapear parámetros antiguos a la nueva API para mantener compatibilidad.
+        norm = 'batch' if use_batchnorm else 'group'
+        depth = config.get('depth', 4)
         return UNet(
-            in_channels, out_channels, base_channels, activation,
-            use_batchnorm=use_batchnorm,
-            use_dropout=use_dropout,
-            dropout_p=dropout_p,
-            use_transpose=use_transpose
+            in_channels=in_channels,
+            out_channels=out_channels,
+            base_channels=base_channels,
+            depth=depth,
+            norm=norm,
+            activation=activation
         )
   
     if arch == 'modernunet':

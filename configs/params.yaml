@@ -39,7 +39,7 @@ model:
 # Parámetros de entrenamiento
 training:
   epochs: 5000
-  batch_size: 8  # UNet puede manejar batch_size más grande
+  batch_size: 4  # UNet puede manejar batch_size más grande
   learning_rate: 1e-3 # Reducido para estabilidad (antes 1e-3 o 2e-4) 
   weight_decay: 1e-4
   

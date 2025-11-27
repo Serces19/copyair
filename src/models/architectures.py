@@ -16,7 +16,12 @@ class ConvexNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, base_channels=64, activation="relu"):
         super().__init__()
         # Por ahora usamos una U-Net como base, pero aquí iría la implementación real
-        self.model = UNet(in_channels, out_channels, base_channels, activation)
+        self.model = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            base_channels=base_channels,
+            activation=activation
+        )
         
     def forward(self, x):
         return self.model(x)
@@ -29,7 +34,12 @@ class MambaIRv2(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, base_channels=64, activation="silu"):
         super().__init__()
         # Mamba suele usar SiLU/Swish
-        self.model = UNet(in_channels, out_channels, base_channels, activation="silu")
+        self.model = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            base_channels=base_channels,
+            activation="silu"
+        )
         
     def forward(self, x):
         return self.model(x)
@@ -41,7 +51,12 @@ class UMamba(nn.Module):
     """
     def __init__(self, in_channels=3, out_channels=3, base_channels=64, activation="silu"):
         super().__init__()
-        self.model = UNet(in_channels, out_channels, base_channels, activation="silu")
+        self.model = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            base_channels=base_channels,
+            activation="silu"
+        )
         
     def forward(self, x):
         return self.model(x)
@@ -54,7 +69,12 @@ class NAFNetHD(nn.Module):
     def __init__(self, in_channels=3, out_channels=3, base_channels=64, activation="gelu"):
         super().__init__()
         # NAFNet usa GELU o SimpleGate
-        self.model = UNet(in_channels, out_channels, base_channels, activation="gelu")
+        self.model = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            base_channels=base_channels,
+            activation="gelu"
+        )
         
     def forward(self, x):
         return self.model(x)
