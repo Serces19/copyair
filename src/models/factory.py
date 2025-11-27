@@ -34,7 +34,7 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     use_dropout = config.get('use_dropout', False)
     dropout_p = config.get('dropout_p', 0.0)
     use_transpose = config.get('use_transpose', False)
-    ModernUNet
+    
     if arch == 'unet':
         return UNet(
             in_channels, out_channels, base_channels, activation,
@@ -45,7 +45,7 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         )
   
     if arch == 'modernunet':
-        return UNet(
+        return ModernUNet(
             in_channels = in_channels,   # Igual que antes (ej. 3)
             out_channels = out_channels, # Igual que antes (ej. 3)
             base_dim = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
