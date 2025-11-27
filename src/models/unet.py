@@ -1,244 +1,188 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
-from typing import Optional, Union
+from typing import Optional
 
 
-def icnr_init(conv_layer, scale=2, initializer=nn.init.kaiming_normal_):
-    """
-    ICNR initialization para eliminar artefactos de ajedrez en PixelShuffle.
-    
-    Inicializa una capa Conv2d que precede a PixelShuffle de manera que
-    actúe como un upsampler suave desde el inicio del entrenamiento.
-    
-    Args:
-        conv_layer: Capa nn.Conv2d a inicializar
-        scale: Factor de upsampling (generalmente 2 para PixelShuffle(2))
-        initializer: Función de inicialización base (default: Kaiming)
-    """
-    ni, nf, h, w = conv_layer.weight.shape
-    sub_kernel = torch.zeros([ni, nf // (scale ** 2), h, w])
-    initializer(sub_kernel)
-    
-    # Repetir el sub-kernel para cada posición del PixelShuffle
-    kernel = sub_kernel.repeat_interleave(scale ** 2, dim=1)
-    conv_layer.weight.data.copy_(kernel)
-    
-    if conv_layer.bias is not None:
-        conv_layer.bias.data.zero_()
-
-
-class ResidualBlock(nn.Module):
-    """Bloque Residual para el Decoder con BatchNorm opcional"""
-    def __init__(self, in_channels, out_channels, activation='relu', use_batchnorm=True):
+class DoubleConv(nn.Module):
+    """(Conv => Norm => Act) * 2"""
+    def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
         super().__init__()
-        self.use_batchnorm = use_batchnorm
-        
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels) if use_batchnorm else nn.Identity()
-        self.act = self._get_activation(activation)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels) if use_batchnorm else nn.Identity()
-        
-        # Shortcut para igualar dimensiones si es necesario
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            layers = [nn.Conv2d(in_channels, out_channels, kernel_size=1)]
-            if use_batchnorm:
-                layers.append(nn.BatchNorm2d(out_channels))
-            self.shortcut = nn.Sequential(*layers)
+        self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False)
+        self.norm1 = self._get_norm(norm, out_ch)
+        self.act1 = self._get_act(activation)
 
-    def _get_activation(self, name):
-        if name == 'relu': return nn.ReLU(inplace=True)
-        if name == 'leaky_relu': return nn.LeakyReLU(0.2, inplace=True)
-        if name == 'gelu': return nn.GELU()
-        if name == 'silu': return nn.SiLU(inplace=True)
-        return nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False)
+        self.norm2 = self._get_norm(norm, out_ch)
+        self.act2 = self._get_act(activation)
+
+    def _get_norm(self, norm, channels):
+        if norm == 'batch':
+            return nn.BatchNorm2d(channels)
+        if norm == 'instance':
+            return nn.InstanceNorm2d(channels, affine=True)
+        groups = min(32, channels) if channels >= 8 else 1
+        return nn.GroupNorm(groups, channels)
+
+    def _get_act(self, name):
+        if name == 'relu':
+            return nn.ReLU(inplace=True)
+        if name == 'leaky_relu':
+            return nn.LeakyReLU(0.2, inplace=True)
+        if name == 'gelu':
+            return nn.GELU()
+        return nn.SiLU(inplace=True)
 
     def forward(self, x):
-        residual = self.shortcut(x)
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.act(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out += residual
-        out = self.act(out)
-        return out
+        x = self.conv1(x)
+        x = self.norm1(x)
+        x = self.act1(x)
+        x = self.conv2(x)
+        x = self.norm2(x)
+        x = self.act2(x)
+        return x
+
+
+class Down(nn.Module):
+    """Downscaling with maxpool then double conv"""
+    def __init__(self, in_ch, out_ch, **kw):
+        super().__init__()
+        self.pool = nn.MaxPool2d(2)
+        self.conv = DoubleConv(in_ch, out_ch, **kw)
+
+    def forward(self, x):
+        x = self.pool(x)
+        x = self.conv(x)
+        return x
+
+
+class Up(nn.Module):
+    """Upscaling then double conv. Uses ConvTranspose2d or bilinear upsample."""
+    def __init__(self, in_ch, out_ch, bilinear=False, norm='group', activation='silu'):
+        super().__init__()
+        self.bilinear = bilinear
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        else:
+            # learnable upsample
+            self.up = nn.ConvTranspose2d(in_ch, out_ch, kernel_size=2, stride=2)
+        # after up, we'll concat with skip -> channels = out_ch + skip_ch (which equals out_ch)
+        # so conv input is out_ch*2, output is out_ch
+        self.conv = DoubleConv(out_ch * 2, out_ch, norm=norm, activation=activation)
+
+    def forward(self, x1, x2=None):
+        # x1: from previous layer; x2: skip connection
+        x1 = self.up(x1)
+        if x2 is not None:
+            diffY = x2.size(2) - x1.size(2)
+            diffX = x2.size(3) - x1.size(3)
+            if diffY != 0 or diffX != 0:
+                x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                                diffY // 2, diffY - diffY // 2])
+            x = torch.cat([x2, x1], dim=1)
+        else:
+            # If no skip, duplicate channels to match conv input expectations
+            x = torch.cat([x1, x1], dim=1)
+        x = self.conv(x)
+        return x
 
 
 class UNet(nn.Module):
+    """UNet desde cero, compatible con la API usada en `factory.get_model`.
+
+    Parámetros principales:
+    - `base_channels`: anchura inicial (por defecto 64). Tests pueden usar valores pequeños (ej. 8).
+    - `depth`: número de niveles (default 4).
+    - `use_batchnorm`: para compatibilidad con configs antiguas; si True, fuerza `norm='batch'`.
+    - `use_transpose`: si True, usa ConvTranspose2d (learnable) para upsampling; si False y `bilinear=True`, usa bilinear upsample.
+    - `tanh` en salida para mantener rango [-1, 1].
     """
-    U-Net con backbone ResNet34 pre-entrenado.
-    
-    Mejoras:
-    1. Encoder: ResNet34 (ImageNet weights) -> Mejor extracción de features.
-    2. Decoder: PixelShuffle + ResidualBlocks -> Mejor reconstrucción y gradientes.
-    3. ICNR Initialization: Elimina artefactos de ajedrez en upsampling.
-    4. Activaciones suaves (GELU/SiLU): Mejores gradientes para regresión de píxeles.
-    5. BatchNorm opcional en decoder: Configurable para máxima fidelidad.
-    6. Input Handling: Acepta [-1, 1], convierte internamente a normalización ImageNet.
-    """
-    
     def __init__(
-        self, 
-        in_channels: int = 3, 
+        self,
+        in_channels: int = 3,
         out_channels: int = 3,
-        base_channels: int = 64, # No usado directamente en ResNet, pero mantenido por compatibilidad
-        activation: str = "gelu",  # Cambiado a GELU por default para mejor calidad
-        use_batchnorm: bool = True,
+        base_channels: int = 64,
+        activation: str = 'silu',
+        norm: str = 'group',
+        depth: int = 4,
+        bilinear: bool = False,
         use_dropout: bool = False,
         dropout_p: float = 0.0,
-        use_transpose: bool = False # Ignorado, usamos PixelShuffle
+        # Compatibilidad con la interfaz anterior
+        use_batchnorm: bool = True,
+        use_transpose: bool = False,
     ):
         super().__init__()
-        
-        self.use_batchnorm = use_batchnorm
-        
-        # --- Encoder (ResNet34) ---
-        # Usamos weights='DEFAULT' que equivale a los mejores pesos disponibles
-        resnet = models.resnet34(weights=models.ResNet34_Weights.DEFAULT)
-        
-        # Si in_channels != 3, adaptamos la primera capa
-        if in_channels != 3:
-            resnet.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            
-        self.enc0 = nn.Sequential(resnet.conv1, resnet.bn1, resnet.relu)
-        self.enc1 = resnet.layer1 # 64
-        self.enc2 = resnet.layer2 # 128
-        self.enc3 = resnet.layer3 # 256
-        self.enc4 = resnet.layer4 # 512
-        
-        self.pool = nn.MaxPool2d(2, 2)
-        
-        # --- Decoder ---
-        # Usamos PixelShuffle para upsampling (factor 2)
-        # PixelShuffle reduce canales en factor 4 (r^2), así que necesitamos convs previas
-        
-        # Bottleneck -> Up4
-        # Input: 512 (enc4). Concat con 256 (enc3).
-        self.up4_conv = nn.Conv2d(512, 256 * 4, kernel_size=1) # Prep for PixelShuffle
-        self.up4_ps = nn.PixelShuffle(2) # 256*4 -> 256
-        self.dec4 = ResidualBlock(256 + 256, 256, activation, use_batchnorm) # 256 (up) + 256 (skip)
-        
-        # Up3
-        # Input: 256. Concat con 128 (enc2).
-        self.up3_conv = nn.Conv2d(256, 128 * 4, kernel_size=1)
-        self.up3_ps = nn.PixelShuffle(2)
-        self.dec3 = ResidualBlock(128 + 128, 128, activation, use_batchnorm)
-        
-        # Up2
-        # Input: 128. Concat con 64 (enc1).
-        self.up2_conv = nn.Conv2d(128, 64 * 4, kernel_size=1)
-        self.up2_ps = nn.PixelShuffle(2)
-        self.dec2 = ResidualBlock(64 + 64, 64, activation, use_batchnorm)
-        
-        # Up1
-        # Input: 64. Concat con 64 (enc0).
-        self.up1_conv = nn.Conv2d(64, 64 * 4, kernel_size=1)
-        self.up1_ps = nn.PixelShuffle(2)
-        self.dec1 = ResidualBlock(64 + 64, 64, activation, use_batchnorm)
-        
-        # Final Upsample (para recuperar resolución original tras el primer conv stride=2 y maxpool)
-        # ResNet reduce x4 en las primeras capas (conv1 stride 2 + maxpool stride 2)
-        # Hemos hecho 4 upsamples, pero necesitamos asegurar el tamaño final.
-        # enc0 es H/2. enc1 es H/4. enc2 H/8. enc3 H/16. enc4 H/32.
-        # up4 (from enc4) -> H/16.
-        # up3 -> H/8.
-        # up2 -> H/4.
-        # up1 -> H/2.
-        # Falta un upsample final para llegar a H.
-        
-        self.up0_conv = nn.Conv2d(64, 32 * 4, kernel_size=1)
-        self.up0_ps = nn.PixelShuffle(2)
-        self.dec0 = ResidualBlock(32, 32, activation, use_batchnorm)
-        
-        self.final = nn.Conv2d(32, out_channels, kernel_size=1)
-        self.tanh = nn.Tanh()
-        
-        # Normalización ImageNet
-        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
-        
-        # Aplicar inicialización ICNR a todas las capas de upsampling
-        self._init_weights()
-    
-    def _init_weights(self):
-        """Aplica inicialización ICNR a las capas previas a PixelShuffle"""
-        icnr_init(self.up4_conv, scale=2)
-        icnr_init(self.up3_conv, scale=2)
-        icnr_init(self.up2_conv, scale=2)
-        icnr_init(self.up1_conv, scale=2)
-        icnr_init(self.up0_conv, scale=2)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.base_channels = base_channels
+        self.depth = depth
 
-    def _pad_to_match(self, x, target):
-        """Pad x to match target spatial dimensions."""
-        if x.shape[-2:] != target.shape[-2:]:
-            diffY = target.size()[2] - x.size()[2]
-            diffX = target.size()[3] - x.size()[3]
+        # Compat: si se pide batchnorm explícitamente, priorizar
+        if use_batchnorm:
+            norm = 'batch'
+
+        # If use_transpose is True, prefer ConvTranspose (i.e. bilinear=False)
+        if use_transpose:
+            bilinear = False
+
+        # Initial conv (no downsample here)
+        self.inc = DoubleConv(in_channels, base_channels, norm=norm, activation=activation)
+
+        # Encoder
+        channels = [base_channels * (2 ** i) for i in range(depth)]
+        self.downs = nn.ModuleList()
+        for i in range(depth - 1):
+            self.downs.append(Down(channels[i], channels[i + 1], norm=norm, activation=activation))
+
+        # Bottleneck
+        self.bottleneck = DoubleConv(channels[-1], channels[-1] * 2, norm=norm, activation=activation)
+
+        # Decoder
+        self.ups = nn.ModuleList()
+        up_in_ch = channels[-1] * 2
+        for i in reversed(range(depth - 1)):
+            up_out = channels[i]
+            # Up expects in_ch=up_in_ch, out_ch=up_out
+            self.ups.append(Up(up_in_ch, up_out, bilinear=bilinear, norm=norm, activation=activation))
+            up_in_ch = up_out
+
+        # Final conv
+        self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+        self.tanh = nn.Tanh()
+
+        # Optional dropout
+        self.use_dropout = use_dropout
+        if use_dropout and dropout_p > 0.0:
+            self.dropout = nn.Dropout2d(p=dropout_p)
+        else:
+            self.dropout = nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x1 = self.inc(x)
+        skips = [x1]
+        xi = x1
+        for down in self.downs:
+            xi = down(xi)
+            skips.append(xi)
+
+        xb = self.bottleneck(xi)
+
+        x = xb
+        for i, up in enumerate(self.ups):
+            skip = skips[-(i + 2)]
+            x = up(x, skip)
+
+        # Ensure spatial match with input (if needed)
+        if x.shape[2:] != x1.shape[2:]:
+            diffY = x1.size(2) - x.size(2)
+            diffX = x1.size(3) - x.size(3)
             x = F.pad(x, [diffX // 2, diffX - diffX // 2,
                           diffY // 2, diffY - diffY // 2])
+
+        x = self.outc(x)
+        x = self.dropout(x)
+        x = self.tanh(x)
         return x
-
-    def forward(self, x):
-        # 1. Input Handling: [-1, 1] -> ImageNet Norm
-        # Denormalize [-1, 1] -> [0, 1]
-        x_norm = (x + 1) * 0.5
-        # Normalize with ImageNet stats
-        x_norm = (x_norm - self.mean) / self.std
-        
-        # 2. Encoder
-        # x: (B, 3, H, W)
-        e0 = self.enc0(x_norm)      # (B, 64, H/2, W/2)
-        e0_pool = self.pool(e0)     # (B, 64, H/4, W/4)
-        
-        e1 = self.enc1(e0_pool)     # (B, 64, H/4, W/4) -> Layer1 no cambia dimensión espacial
-        e2 = self.enc2(e1)          # (B, 128, H/8, W/8)
-        e3 = self.enc3(e2)          # (B, 256, H/16, W/16)
-        e4 = self.enc4(e3)          # (B, 512, H/32, W/32)
-        
-        # 3. Decoder
-        # Up4: e4 -> e3 size
-        d4 = self.up4_ps(self.up4_conv(e4)) # (B, 256, H/16, W/16)
-        d4 = self._pad_to_match(d4, e3)
-        d4 = torch.cat([d4, e3], dim=1)     # (B, 512, ...)
-        d4 = self.dec4(d4)                  # (B, 256, ...)
-        
-        # Up3: d4 -> e2 size
-        d3 = self.up3_ps(self.up3_conv(d4)) # (B, 128, H/8, W/8)
-        d3 = self._pad_to_match(d3, e2)
-        d3 = torch.cat([d3, e2], dim=1)     # (B, 256, ...)
-        d3 = self.dec3(d3)                  # (B, 128, ...)
-        
-        # Up2: d3 -> e1 size
-        d2 = self.up2_ps(self.up2_conv(d3)) # (B, 64, H/4, W/4)
-        d2 = self._pad_to_match(d2, e1)
-        d2 = torch.cat([d2, e1], dim=1)     # (B, 128, ...)
-        d2 = self.dec2(d2)                  # (B, 64, ...)
-        
-        # Up1: d2 -> e0 size
-        d1 = self.up1_ps(self.up1_conv(d2)) # (B, 64, H/2, W/2)
-        # Nota: e0 tiene 64 canales.
-        d1 = self._pad_to_match(d1, e0)
-        d1 = torch.cat([d1, e0], dim=1)     # (B, 128, ...)
-        d1 = self.dec1(d1)                  # (B, 64, ...)
-        
-        # Up0: d1 -> Original size
-        d0 = self.up0_ps(self.up0_conv(d1)) # (B, 32, H, W)
-        # Puede que necesitemos padding final si el input original era impar
-        # Pero d0 va directo a dec0 y final, no concatena con nada.
-        # Sin embargo, si queremos que output sea == input size:
-        if d0.shape[-2:] != x.shape[-2:]:
-             d0 = self._pad_to_match(d0, x)
-             
-        d0 = self.dec0(d0)
-        
-        # Output
-        out = self.final(d0)
-        out = self.tanh(out)
-        
-        return out
-
 
 
