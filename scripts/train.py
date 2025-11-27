@@ -2,7 +2,8 @@
 Script principal de entrenamiento
 Uso: python scripts/train.py --config configs/params.yaml
 """
-
+import tempfile
+from PIL import Image
 import argparse
 import yaml
 import logging
@@ -12,7 +13,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 import json
 import time
-
+import signal
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -233,8 +234,6 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
     return model, optimizer, scheduler, loss_fn
 
 
-import signal
-
 class GracefulKiller:
     kill_now = False
     def __init__(self):
@@ -334,12 +333,10 @@ def train(config: dict, device: torch.device):
                 train_metrics = train_epoch(
                     model, train_loader, optimizer, loss_fn, device, epoch
                 )
-                train_time = time.time() - t_train_start
 
                 # Registrar métricas de entrenamiento en MLflow
                 # Solo registramos la pérdida total para evitar ruido
                 mlflow.log_metric('train/loss', train_metrics['loss'], step=epoch)
-                mlflow.log_metric('time/train_duration', train_time, step=epoch)
 
                 # Validación (solo cada val_interval épocas para eficiencia)
                 val_interval = config['training'].get('val_interval', 50)
@@ -392,8 +389,6 @@ def train(config: dict, device: torch.device):
                         comparison = (comparison * 255).astype(np.uint8)
                         
                         # Guardar temp y loggear
-                        import tempfile
-                        from PIL import Image
                         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
                             Image.fromarray(comparison).save(f.name)
                             mlflow.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
@@ -473,7 +468,7 @@ def train(config: dict, device: torch.device):
                 mlflow.log_metric('time/epoch_duration', epoch_time, step=epoch)
                 
                 # Reportar tiempos en log (opcional, para debug en consola)
-                logger.info(f"Tiempos: Epoch={epoch_time:.2f}s | Train={train_time:.2f}s")
+                logger.info(f"Tiempos: Epoch={epoch_time:.2f}s")
                 
                 # Verificar killer al FINAL de la época también
                 if killer.kill_now:
