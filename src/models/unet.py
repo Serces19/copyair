@@ -59,32 +59,114 @@ class Down(nn.Module):
     def forward(self, x):
         return self.body(x)
 
+# class Up(nn.Module):
+#     """Upscaling 'Anti-Artifacts' usando Bilinear + Conv"""
+#     def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
+#         super().__init__()
+#         # 1. Upsample "tonto" pero suave
+#         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+#         # 2. Convolución para reducir canales antes de concatenar (ahorra memoria)
+#         self.conv_reduce = nn.Conv2d(in_ch, in_ch // 2, kernel_size=1)
+#         # 3. Bloque procesador
+#         self.conv = ResDoubleConv(in_ch, out_ch, norm=norm, activation=activation)
+
+#     def forward(self, x1, x2):
+#         # x1: input desde abajo (bottleneck), x2: skip connection
+#         x1 = self.up(x1)
+#         x1 = self.conv_reduce(x1) # Reducimos canales para igualar dimensiones usuales
+        
+#         # Padding dinámico por si las dimensiones no cuadran perfecto
+#         diffY = x2.size(2) - x1.size(2)
+#         diffX = x2.size(3) - x1.size(3)
+#         if diffY != 0 or diffX != 0:
+#             x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+            
+#         # Concatenación
+#         x = torch.cat([x2, x1], dim=1)
+#         x = self.conv(x)
+#         return x
+
+
 class Up(nn.Module):
-    """Upscaling 'Anti-Artifacts' usando Bilinear + Conv"""
-    def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
+    def __init__(self, in_ch, out_ch, norm='group', activation='silu', use_attention=True): # <--- Nuevo flag
         super().__init__()
-        # 1. Upsample "tonto" pero suave
+        self.use_attention = use_attention
+        
         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        # 2. Convolución para reducir canales antes de concatenar (ahorra memoria)
         self.conv_reduce = nn.Conv2d(in_ch, in_ch // 2, kernel_size=1)
-        # 3. Bloque procesador
+        
+        # Atención: Filtra el skip connection (x2) usando la señal de abajo (x1)
+        if use_attention:
+            # in_ch//2 es lo que viene de abajo reduccido, out_ch es lo que viene del skip (usualmente)
+            self.att = AttentionBlock(F_g=in_ch // 2, F_l=out_ch, F_int=out_ch // 2)
+            
         self.conv = ResDoubleConv(in_ch, out_ch, norm=norm, activation=activation)
 
     def forward(self, x1, x2):
-        # x1: input desde abajo (bottleneck), x2: skip connection
         x1 = self.up(x1)
-        x1 = self.conv_reduce(x1) # Reducimos canales para igualar dimensiones usuales
+        x1 = self.conv_reduce(x1) 
         
-        # Padding dinámico por si las dimensiones no cuadran perfecto
+        # Ajuste de tamaño por padding (igual que antes)
         diffY = x2.size(2) - x1.size(2)
         diffX = x2.size(3) - x1.size(3)
         if diffY != 0 or diffX != 0:
             x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+        
+        # APLICAR ATENCIÓN AL SKIP CONNECTION
+        if self.use_attention:
+            x2 = self.att(g=x1, x=x2) # <--- Aquí filtramos la arruga del skip
             
-        # Concatenación
         x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
+
+
+class AttentionBlock(nn.Module):
+    """
+    Filtra las características que vienen del Skip Connection.
+    Ayuda a la red a ignorar información irrelevante (como la arruga que quieres borrar)
+    antes de fusionarla con el decoder.
+    """
+    def __init__(self, F_g, F_l, F_int):
+        super().__init__()
+        # F_g: Canales viniendo desde abajo (Gating signal)
+        # F_l: Canales del skip connection (Local features)
+        # F_int: Canales intermedios (menor costo computacional)
+        
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+        
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+
+        self.psi = nn.Sequential(
+            nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(1),
+            nn.Sigmoid()
+        )
+        
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, g, x):
+        # g: input del decoder (gating)
+        # x: input del encoder (skip connection)
+        
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        
+        # Redimensionar g1 para que coincida con x1 si es necesario (por strides)
+        if g1.shape[2:] != x1.shape[2:]:
+            g1 = F.interpolate(g1, size=x1.shape[2:], mode='bilinear', align_corners=False)
+        
+        psi = self.relu(g1 + x1)
+        psi = self.psi(psi)
+
+        return x * psi
+
 
 class UNet(nn.Module):
     def __init__(
