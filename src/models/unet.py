@@ -1,13 +1,18 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
-
-class DoubleConv(nn.Module):
-    """(Conv => Norm => Act) * 2"""
+class ResDoubleConv(nn.Module):
+    """
+    Bloque Clásico Mejorado:
+    1. Usa GroupNorm (mejor para pocos datos que BatchNorm).
+    2. Agrega Residual Connection (Input + Output) para estabilidad.
+    """
     def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
         super().__init__()
+        # Si cambiamos de canales, necesitamos adaptar el input para la suma residual
+        self.residual_conv = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
+        
         self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False)
         self.norm1 = self._get_norm(norm, out_ch)
         self.act1 = self._get_act(activation)
@@ -17,172 +22,130 @@ class DoubleConv(nn.Module):
         self.act2 = self._get_act(activation)
 
     def _get_norm(self, norm, channels):
-        if norm == 'batch':
-            return nn.BatchNorm2d(channels)
-        if norm == 'instance':
-            return nn.InstanceNorm2d(channels, affine=True)
-        groups = min(32, channels) if channels >= 8 else 1
-        return nn.GroupNorm(groups, channels)
+        if norm == 'batch': return nn.BatchNorm2d(channels)
+        if norm == 'instance': return nn.InstanceNorm2d(channels, affine=True)
+        # GroupNorm estable: 32 grupos por defecto, o 1 grupo si hay pocos canales
+        num_groups = 32 if channels % 32 == 0 else (channels // 8 if channels >= 8 else 1)
+        return nn.GroupNorm(num_groups=num_groups, num_channels=channels)
 
     def _get_act(self, name):
-        if name == 'relu':
-            return nn.ReLU(inplace=True)
-        if name == 'leaky_relu':
-            return nn.LeakyReLU(0.2, inplace=True)
-        if name == 'gelu':
-            return nn.GELU()
-        return nn.SiLU(inplace=True)
+        if name == 'relu': return nn.ReLU(inplace=True)
+        if name == 'leaky': return nn.LeakyReLU(0.2, inplace=True)
+        return nn.SiLU(inplace=True) # SiLU (Swish) es mejor hoy en día
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.norm1(x)
-        x = self.act1(x)
-        x = self.conv2(x)
-        x = self.norm2(x)
-        x = self.act2(x)
-        return x
-
+        identity = self.residual_conv(x)
+        
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = self.act1(out)
+        
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out = self.act2(out)
+        
+        return out + identity  # <--- MAGIA: Residual Connection
 
 class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
-    def __init__(self, in_ch, out_ch, **kw):
+    """Downscaling con Strided Convolution (Mejor que MaxPool para texturas)"""
+    def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
         super().__init__()
-        self.pool = nn.MaxPool2d(2)
-        self.conv = DoubleConv(in_ch, out_ch, **kw)
+        self.body = nn.Sequential(
+            # Stride 2 reduce la dimensión a la mitad aprendiendo features
+            nn.Conv2d(in_ch, in_ch, kernel_size=3, stride=2, padding=1, bias=False), 
+            ResDoubleConv(in_ch, out_ch, norm=norm, activation=activation)
+        )
 
     def forward(self, x):
-        x = self.pool(x)
-        x = self.conv(x)
-        return x
-
+        return self.body(x)
 
 class Up(nn.Module):
-    """Upscaling then double conv. Uses ConvTranspose2d or bilinear upsample."""
-    def __init__(self, in_ch, out_ch, bilinear=False, norm='group', activation='silu'):
+    """Upscaling 'Anti-Artifacts' usando Bilinear + Conv"""
+    def __init__(self, in_ch, out_ch, norm='group', activation='silu'):
         super().__init__()
-        self.bilinear = bilinear
-        if bilinear:
-            self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        else:
-            # learnable upsample
-            self.up = nn.ConvTranspose2d(in_ch, out_ch, kernel_size=2, stride=2)
-        # after up, we'll concat with skip -> channels = out_ch + skip_ch (which equals out_ch)
-        # so conv input is out_ch*2, output is out_ch
-        self.conv = DoubleConv(out_ch * 2, out_ch, norm=norm, activation=activation)
+        # 1. Upsample "tonto" pero suave
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        # 2. Convolución para reducir canales antes de concatenar (ahorra memoria)
+        self.conv_reduce = nn.Conv2d(in_ch, in_ch // 2, kernel_size=1)
+        # 3. Bloque procesador
+        self.conv = ResDoubleConv(in_ch, out_ch, norm=norm, activation=activation)
 
-    def forward(self, x1, x2=None):
-        # x1: from previous layer; x2: skip connection
+    def forward(self, x1, x2):
+        # x1: input desde abajo (bottleneck), x2: skip connection
         x1 = self.up(x1)
-        if x2 is not None:
-            diffY = x2.size(2) - x1.size(2)
-            diffX = x2.size(3) - x1.size(3)
-            if diffY != 0 or diffX != 0:
-                x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                                diffY // 2, diffY - diffY // 2])
-            x = torch.cat([x2, x1], dim=1)
-        else:
-            # If no skip, duplicate channels to match conv input expectations
-            x = torch.cat([x1, x1], dim=1)
+        x1 = self.conv_reduce(x1) # Reducimos canales para igualar dimensiones usuales
+        
+        # Padding dinámico por si las dimensiones no cuadran perfecto
+        diffY = x2.size(2) - x1.size(2)
+        diffX = x2.size(3) - x1.size(3)
+        if diffY != 0 or diffX != 0:
+            x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+            
+        # Concatenación
+        x = torch.cat([x2, x1], dim=1)
         x = self.conv(x)
         return x
 
-
-class UNet(nn.Module):
-    """UNet desde cero, compatible con la API usada en `factory.get_model`.
-
-    Parámetros principales:
-    - `base_channels`: anchura inicial (por defecto 64). Tests pueden usar valores pequeños (ej. 8).
-    - `depth`: número de niveles (default 4).
-    - `use_batchnorm`: para compatibilidad con configs antiguas; si True, fuerza `norm='batch'`.
-    - `use_transpose`: si True, usa ConvTranspose2d (learnable) para upsampling; si False y `bilinear=True`, usa bilinear upsample.
-    - `tanh` en salida para mantener rango [-1, 1].
-    """
+class ClassicUNet(nn.Module):
     def __init__(
         self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        base_channels: int = 64,
-        activation: str = 'silu',
-        norm: str = 'group',
-        depth: int = 4,
-        bilinear: bool = False,
-        use_dropout: bool = False,
-        dropout_p: float = 0.0,
-        # Compatibilidad con la interfaz anterior
-        use_batchnorm: bool = True,
-        use_transpose: bool = False,
+        in_channels=3,
+        out_channels=3,
+        base_channels=64, # Mantén esto en 64 para buena calidad
+        depth=4,          # 4 es el estándar equilibrado
+        norm='group',
+        activation='silu'
     ):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.base_channels = base_channels
-        self.depth = depth
-
-        # Compat: si se pide batchnorm explícitamente, priorizar
-        if use_batchnorm:
-            norm = 'batch'
-
-        # If use_transpose is True, prefer ConvTranspose (i.e. bilinear=False)
-        if use_transpose:
-            bilinear = False
-
-        # Initial conv (no downsample here)
-        self.inc = DoubleConv(in_channels, base_channels, norm=norm, activation=activation)
-
-        # Encoder
-        channels = [base_channels * (2 ** i) for i in range(depth)]
+        
+        self.inc = ResDoubleConv(in_channels, base_channels, norm=norm, activation=activation)
+        
+        # Construcción dinámica del Encoder
         self.downs = nn.ModuleList()
+        current_ch = base_channels
+        
+        # Encoder (depth-1 bajadas)
+        # Canales: 64 -> 128 -> 256 -> 512
+        filters = [base_channels * (2**i) for i in range(depth)]
+        
         for i in range(depth - 1):
-            self.downs.append(Down(channels[i], channels[i + 1], norm=norm, activation=activation))
-
-        # Bottleneck
-        self.bottleneck = DoubleConv(channels[-1], channels[-1] * 2, norm=norm, activation=activation)
-
+            self.downs.append(Down(filters[i], filters[i+1], norm=norm, activation=activation))
+            
+        # Bottleneck (sin cambiar tamaño espacial, solo procesar)
+        # Canales: 512 -> 512
+        self.bottleneck = ResDoubleConv(filters[-1], filters[-1], norm=norm, activation=activation)
+        
         # Decoder
         self.ups = nn.ModuleList()
-        up_in_ch = channels[-1] * 2
+        # Invertimos filtros para subir
+        # 512 -> 256 -> 128 -> 64
         for i in reversed(range(depth - 1)):
-            up_out = channels[i]
-            # Up expects in_ch=up_in_ch, out_ch=up_out
-            self.ups.append(Up(up_in_ch, up_out, bilinear=bilinear, norm=norm, activation=activation))
-            up_in_ch = up_out
-
-        # Final conv
+            self.ups.append(Up(filters[i+1], filters[i], norm=norm, activation=activation))
+            
+        # Output Final
         self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
-        self.tanh = nn.Tanh()
+        self.tanh = nn.Tanh() # Asumiendo target en [-1, 1]
 
-        # Optional dropout
-        self.use_dropout = use_dropout
-        if use_dropout and dropout_p > 0.0:
-            self.dropout = nn.Dropout2d(p=dropout_p)
-        else:
-            self.dropout = nn.Identity()
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
+        # Encoder
         x1 = self.inc(x)
         skips = [x1]
+        
         xi = x1
         for down in self.downs:
             xi = down(xi)
             skips.append(xi)
-
-        xb = self.bottleneck(xi)
-
-        x = xb
+            
+        # Bottleneck
+        x_bot = self.bottleneck(skips[-1])
+        
+        # Decoder
+        x = x_bot
+        # Iteramos ups y skips en reverso (excluyendo el último skip que es el input del bottleneck)
+        skips = skips[:-1][::-1] # Invertir lista de skips restantes
+        
         for i, up in enumerate(self.ups):
-            skip = skips[-(i + 2)]
-            x = up(x, skip)
-
-        # Ensure spatial match with input (if needed)
-        if x.shape[2:] != x1.shape[2:]:
-            diffY = x1.size(2) - x.size(2)
-            diffX = x1.size(3) - x.size(3)
-            x = F.pad(x, [diffX // 2, diffX - diffX // 2,
-                          diffY // 2, diffY - diffY // 2])
-
-        x = self.outc(x)
-        x = self.dropout(x)
-        x = self.tanh(x)
-        return x
-
-
+            x = up(x, skips[i])
+            
+        out = self.outc(x)
+        return self.tanh(out)
