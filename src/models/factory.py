@@ -41,14 +41,15 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         # Mapear parámetros antiguos a la nueva API para mantener compatibilidad.
         norm = 'batch' if use_batchnorm else 'group'
         depth = config.get('depth', 5)
-        return UNet(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            base_channels=base_channels,
-            depth=depth,
-            norm=norm,
-            activation=activation
-        )
+        # return UNet(
+        #     in_channels=in_channels,
+        #     out_channels=out_channels,
+        #     base_channels=base_channels,
+        #     depth=depth,
+        #     norm=norm,
+        #     activation=activation
+        # )
+        return UNet()
   
     if arch == 'modernunet':
         return ModernUNet(
