@@ -345,6 +345,72 @@ class SobelLoss(nn.Module):
         return loss_x + loss_y
 
 
+class GradientLossPro(nn.Module):
+    """
+    Loss de bordes mejorada:
+    - Scharr (ó Sobel)
+    - Magnitud del gradiente
+    - Totalmente diferenciable
+    """
+    def __init__(self, mode="scharr", device="cuda"):
+        super().__init__()
+        self.mode = mode
+
+        # --- Kernels ---
+        if mode == "sobel":
+            kx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]
+            ky = [[-1,-2,-1], [0,0,0], [1,2,1]]
+
+        elif mode == "scharr":
+            kx = [[-3, 0, 3], [-10, 0, 10], [-3, 0, 3]]
+            ky = [[-3,-10,-3], [0,0,0], [3,10,3]]
+
+        elif mode == "laplacian":
+            lap = [[0,1,0], [1,-4,1], [0,1,0]]
+            self.kernel_lap = torch.tensor(lap, dtype=torch.float32).view(1, 1, 3, 3).to(device)
+        else:
+            raise ValueError("mode debe ser sobel, scharr o laplacian")
+
+        if mode in ("sobel", "scharr"):
+            self.kernel_x = torch.tensor(kx, dtype=torch.float32).view(1, 1, 3, 3).to(device)
+            self.kernel_y = torch.tensor(ky, dtype=torch.float32).view(1, 1, 3, 3).to(device)
+
+        self.l1 = nn.L1Loss()
+
+    def forward(self, pred, target):
+        B, C, H, W = pred.shape
+
+        # Flatten para aplicar convolución por canal
+        pred_f = pred.reshape(B*C, 1, H, W)
+        tgt_f  = target.reshape(B*C, 1, H, W)
+
+        if self.mode == "laplacian":
+            pred_l = F.conv2d(pred_f, self.kernel_lap, padding=1)
+            tgt_l  = F.conv2d(tgt_f,  self.kernel_lap, padding=1)
+            return self.l1(pred_l, tgt_l)
+
+        # --- Gradientes X/Y ---
+        pred_gx = F.conv2d(pred_f, self.kernel_x, padding=1)
+        pred_gy = F.conv2d(pred_f, self.kernel_y, padding=1)
+
+        tgt_gx = F.conv2d(tgt_f, self.kernel_x, padding=1)
+        tgt_gy = F.conv2d(tgt_f, self.kernel_y, padding=1)
+
+        # --- Magnitud del gradiente ---
+        pred_mag = torch.sqrt(pred_gx**2 + pred_gy**2 + 1e-8)
+        tgt_mag  = torch.sqrt(tgt_gx**2 + tgt_gy**2 + 1e-8)
+
+        # --- Total Loss ---
+        loss = (
+            self.l1(pred_gx, tgt_gx) +
+            self.l1(pred_gy, tgt_gy) +
+            self.l1(pred_mag, tgt_mag)
+        )
+
+        return loss
+
+
+
 class MultiScaleLoss(nn.Module):
     """
     Calcula la pérdida en múltiples escalas (Pirámide).
@@ -413,7 +479,7 @@ class HybridLoss(nn.Module):
             self.charbonnier_loss = None
             
         if self.lambda_sobel > 0:
-            self.sobel_loss = SobelLoss(device=device)
+            self.sobel_loss = GradientLossPro(device=device)
         else:
             self.sobel_loss = None
         
