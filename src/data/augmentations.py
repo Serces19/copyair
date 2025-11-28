@@ -43,7 +43,15 @@ def get_transforms(
     
     # Transformaciones geométricas (aplicar a Input y GT por igual)
     if augment:
-        geometric_transforms = [A.RandomCrop(width=img_size, height=img_size, p=1)]
+        # Multi-Scale Training (Zoom-Out)
+        # Escalar hacia abajo para que el crop cubra más área (contexto global)
+        scale_limit = aug_config.get('random_scale_limit', 0.0)
+        if scale_limit != 0:
+            # scale_limit puede ser float (ej: -0.5) o tuple (ej: (-0.5, 0.0))
+            # Si es float negativo, A.RandomScale lo interpreta como rango [1+scale_limit, 1]
+            geometric_transforms.append(A.RandomScale(scale_limit=scale_limit, p=0.5))
+
+        geometric_transforms.append(A.RandomCrop(width=img_size, height=img_size, p=1))
         
         # Flips
         if aug_config.get('horizontal_flip_p', 0) > 0:

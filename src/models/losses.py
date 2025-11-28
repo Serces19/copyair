@@ -345,6 +345,32 @@ class SobelLoss(nn.Module):
         return loss_x + loss_y
 
 
+class MultiScaleLoss(nn.Module):
+    """
+    Calcula la pérdida en múltiples escalas (Pirámide).
+    Ayuda al modelo a aprender estructura global (bajas frecuencias) y detalles (altas frecuencias).
+    """
+    def __init__(self, loss_fn, scales=[1.0, 0.5, 0.25], weights=None):
+        super().__init__()
+        self.loss_fn = loss_fn
+        self.scales = scales
+        self.weights = weights if weights else [1.0] * len(scales)
+        
+    def forward(self, pred, target):
+        total_loss = 0
+        
+        for scale, weight in zip(self.scales, self.weights):
+            if scale == 1.0:
+                p, t = pred, target
+            else:
+                p = F.interpolate(pred, scale_factor=scale, mode='bilinear', align_corners=False, antialias=True)
+                t = F.interpolate(target, scale_factor=scale, mode='bilinear', align_corners=False, antialias=True)
+                
+            total_loss += self.loss_fn(p, t) * weight
+            
+        return total_loss
+
+
 class HybridLoss(nn.Module):
     """
     Combinación de múltiples pérdidas para mejores resultados
@@ -362,6 +388,7 @@ class HybridLoss(nn.Module):
         lambda_dreamsim: float = 0.0,
         lambda_charbonnier: float = 0.0,
         lambda_sobel: float = 0.0,
+        lambda_multiscale: float = 0.0,
         device: str = 'cuda'
     ):
         super().__init__()
@@ -406,6 +433,14 @@ class HybridLoss(nn.Module):
                 self.lambda_dreamsim = 0
         else:
             self.dreamsim_loss = None
+
+        self.lambda_multiscale = lambda_multiscale
+        if self.lambda_multiscale > 0:
+            # Usamos L1 para la pirámide multi-escala (simple y efectivo para estructura)
+            base_loss = L1Loss()
+            self.multiscale_loss = MultiScaleLoss(base_loss, scales=[1.0, 0.5, 0.25, 0.125])
+        else:
+            self.multiscale_loss = None
     
     def forward(self, pred, target, mask=None):
         total_loss = 0.0
@@ -462,6 +497,11 @@ class HybridLoss(nn.Module):
             dream = self.dreamsim_loss(pred, target)
             total_loss += self.lambda_dreamsim * dream
             metrics['dreamsim'] = dream
+            
+        if self.lambda_multiscale > 0 and self.multiscale_loss is not None:
+            ms_loss = self.multiscale_loss(pred, target)
+            total_loss += self.lambda_multiscale * ms_loss
+            metrics['multiscale'] = ms_loss
             
         metrics['total'] = total_loss
             
