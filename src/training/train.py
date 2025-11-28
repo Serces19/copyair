@@ -2,12 +2,18 @@
 Loop de entrenamiento y validación
 """
 
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+import math
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from typing import Dict, Tuple
 import logging
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +112,6 @@ def validate(
     Returns:
         Diccionario con métricas de validación
     """
-    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-    from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
-    import random
 
     model.eval()
     accumulated_metrics = {}
@@ -130,14 +133,14 @@ def validate(
             
             output = model(input_img)
             
-            # 1. Pérdida Híbrida (la misma que train)
-            losses_dict = loss_fn(output, target_img)
+            # # 1. Pérdida Híbrida (la misma que train)
+            # losses_dict = loss_fn(output, target_img)
             
-            # Acumular métricas de loss
-            for k, v in losses_dict.items():
-                if isinstance(v, torch.Tensor):
-                    v = v.item()
-                accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
+            # # Acumular métricas de loss
+            # for k, v in losses_dict.items():
+            #     if isinstance(v, torch.Tensor):
+            #         v = v.item()
+            #     accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
             
             # 2. Métricas de Sanidad (PSNR, SSIM)
             # Calculadas sobre la imagen completa
@@ -149,31 +152,41 @@ def validate(
             
             # 3. Crop-LPIPS (Validación de Textura)
             # Extraer 5 parches aleatorios de 256x256
-            n_crops = 5
-            crop_size = 256
-            batch_lpips = 0.0
+            # n_crops = 10
+            # crop_size = 128
+            # batch_lpips = 0.0
             
-            B, C, H, W = output.shape
+            # B, C, H, W = output.shape
             
-            # Si la imagen es más pequeña que el crop, usar la imagen entera
-            if H < crop_size or W < crop_size:
-                batch_lpips = lpips_metric(output, target_img).item()
-            else:
-                for _ in range(n_crops):
-                    # Coordenadas aleatorias
-                    h_start = random.randint(0, H - crop_size)
-                    w_start = random.randint(0, W - crop_size)
+            # # Si la imagen es más pequeña que el crop, usar la imagen entera
+            # if H < crop_size or W < crop_size:
+            #     batch_lpips = lpips_metric(output, target_img).item()
+            # else:
+            #     for _ in range(n_crops):
+            #         # Coordenadas aleatorias
+            #         h_start = random.randint(0, H - crop_size)
+            #         w_start = random.randint(0, W - crop_size)
                     
-                    # Recortar
-                    crop_pred = output[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
-                    crop_target = target_img[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
+            #         # Recortar
+            #         crop_pred = output[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
+            #         crop_target = target_img[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
                     
-                    # Calcular LPIPS del parche
-                    batch_lpips += lpips_metric(crop_pred, crop_target).item()
+            #         # Calcular LPIPS del parche
+            #         batch_lpips += lpips_metric(crop_pred, crop_target).item()
                 
-                batch_lpips /= n_crops
+            #     batch_lpips /= n_crops
             
-            accumulated_metrics['crop_lpips'] = accumulated_metrics.get('crop_lpips', 0.0) + batch_lpips
+            # accumulated_metrics['crop_lpips'] = accumulated_metrics.get('crop_lpips', 0.0) + batch_lpips
+            heat, score = lpips_sliding_window(
+                lpips_metric,
+                output,
+                target_img,
+                patch_size=128,
+                return_heatmap=True,
+                score_mode="p95"
+            )
+
+            accumulated_metrics["lpips_sliding"] = score
             
             num_batches += 1
     
@@ -186,3 +199,72 @@ def validate(
     final_metrics['val_loss'] = final_metrics.get('val_total', 0.0)
     
     return final_metrics
+
+
+
+def lpips_sliding_window(
+    lpips_metric,
+    img_pred,
+    img_target,
+    patch_size=128,
+    stride=patch_size // 2,   # overlap del 50%
+    return_heatmap=False,
+    score_mode="mean",        # "mean", "max", "p95", None
+):
+    """
+    LPIPS basado en sliding windows. Cubre completamente la imagen y
+    permite generar un heatmap perceptual denso.
+
+    Args:
+        lpips_metric: instancia de TorchMetrics LPIPS
+        img_pred: tensor (B, 3, H, W)
+        img_target: tensor (B, 3, H, W)
+        patch_size: tamaño de ventana (64, 128, 256…)
+        stride: paso del sliding window. Stride = patch_size//2 = overlap 50%
+        return_heatmap: True para devolver heatmap perceptual
+        score_mode: "mean", "max", "p95", None
+
+    Returns:
+        heatmap (opcional), score_global (opcional)
+    """
+
+    B, C, H, W = img_pred.shape
+
+    # Extraer patches (tipo unfold)
+    unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride)
+
+    pred_patches = unfold(img_pred)  # (B, C*ps*ps, N_patches)
+    tgt_patches = unfold(img_target)
+
+    # Reorganizar: (N_patches_total, 3, ps, ps)
+    npatches = pred_patches.shape[-1]
+
+    pred_patches = pred_patches.permute(0, 2, 1).reshape(-1, C, patch_size, patch_size)
+    tgt_patches = tgt_patches.permute(0, 2, 1).reshape(-1, C, patch_size, patch_size)
+
+    # LPIPS en batch → muy rápido
+    with torch.no_grad():
+        patch_scores = lpips_metric(pred_patches, tgt_patches)  # shape (npatches,)
+
+    # ---- Opcional: Heatmap ----
+    heatmap = None
+    if return_heatmap:
+        # Reconstruir heatmap a la forma (B, H/stride, W/stride)
+        grid_h = (H - patch_size) // stride + 1
+        grid_w = (W - patch_size) // stride + 1
+
+        heatmap = patch_scores.reshape(B, grid_h, grid_w)
+
+    # ---- Opcional: Score global ----
+    score = None
+    if score_mode is not None:
+        if score_mode == "mean":
+            score = patch_scores.mean().item()
+        elif score_mode == "max":
+            score = patch_scores.max().item()
+        elif score_mode == "p95":
+            score = patch_scores.quantile(0.95).item()
+        else:
+            raise ValueError("score_mode inválido")
+
+    return heatmap, score

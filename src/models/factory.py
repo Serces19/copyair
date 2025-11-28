@@ -40,7 +40,7 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         # UNet(in_channels=..., out_channels=..., base_channels=..., depth=..., norm=..., activation=...)
         # Mapear parámetros antiguos a la nueva API para mantener compatibilidad.
         norm = 'batch' if use_batchnorm else 'group'
-        depth = config.get('depth', 4)
+        depth = config.get('depth', 5)
         return UNet(
             in_channels=in_channels,
             out_channels=out_channels,

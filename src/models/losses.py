@@ -21,20 +21,79 @@ class L1Loss(nn.Module):
 
 
 # --- Pérdida perceptual con LPIPS ---
+# class PerceptualLoss(nn.Module):
+#     """
+#     Pérdida perceptual usando LPIPS.
+    
+#     Input:
+#         - Imágenes en rango [-1, 1] (comportamiento por defecto de torchmetrics con normalize=False).
+#         - Shape: (N, 3, H, W)
+#     """
+#     def __init__(self, net='alex', device='cuda'):
+#         super().__init__()
+#         self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net, normalize=False).to(device)
+
+#     def forward(self, pred, target):
+#         return self.lpips(pred, target)
+
 class PerceptualLoss(nn.Module):
     """
-    Pérdida perceptual usando LPIPS.
-    
-    Input:
-        - Imágenes en rango [-1, 1] (comportamiento por defecto de torchmetrics con normalize=False).
-        - Shape: (N, 3, H, W)
+    LPIPS por ventanas deslizantes (tiles),
+    con score_mode: ["mean", "sum", "p95"].
+    Optimizado para VFX (detalles finos, 8K seguro).
     """
-    def __init__(self, net='alex', device='cuda'):
+
+    def __init__(
+        self,
+        tile_size=128,
+        stride=None,
+        score_mode="mean",   # 'mean', 'sum', 'p95'
+        device="cuda"
+    ):
         super().__init__()
-        self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net, normalize=False).to(device)
+
+        self.tile_size = tile_size
+        self.stride = stride if stride is not None else tile_size // 2
+        self.score_mode = score_mode
+
+        self.lpips = LearnedPerceptualImagePatchSimilarity(
+            net_type='alex',
+            normalize=False
+        ).to(device)
 
     def forward(self, pred, target):
-        return self.lpips(pred, target)
+        N, C, H, W = pred.shape
+        T = self.tile_size
+
+        lpips_values = []
+
+        # Sliding window completo
+        for y in range(0, H - T + 1, self.stride):
+            for x in range(0, W - T + 1, self.stride):
+
+                p = pred[:, :, y:y+T, x:x+T]
+                t = target[:, :, y:y+T, x:x+T]
+
+                lp = self.lpips(p, t)     # LPIPS para este tile
+                lpips_values.append(lp)
+
+        # Convertir a tensor
+        lpips_values = torch.stack(lpips_values, dim=0)  # shape: (#tiles,)
+        lpips_values = lpips_values.squeeze()
+
+        # -------- SCORE MODES --------
+        if self.score_mode == "mean":
+            return lpips_values.mean()
+
+        elif self.score_mode == "sum":
+            return lpips_values.sum()
+
+        elif self.score_mode == "p95":
+            # percentil 95 para capturar errores importantes
+            return torch.quantile(lpips_values, 0.95)
+
+        else:
+            raise ValueError(f"score_mode inválido: {self.score_mode}")
 
 
 # --- Pérdida DreamSim ---
@@ -316,7 +375,7 @@ class HybridLoss(nn.Module):
         
         self.l1_loss = L1Loss()
         self.ssim_loss = SSIMLoss()
-        self.perceptual_loss = PerceptualLoss(device=device)
+        self.perceptual_loss = PerceptualLoss(tile_size=128, score_mode="p95", device=device)
         self.laplacian_loss = LaplacianPyramidLoss(device=device)
         
         # Nuevas pérdidas
