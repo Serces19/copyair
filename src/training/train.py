@@ -204,68 +204,110 @@ def validate(
 
 def lpips_sliding_window(
     lpips_metric,
-    img_pred,
-    img_target,
-    patch_size=128,
-    stride=2,   # overlap del 50%
-    return_heatmap=False,
-    score_mode="mean",        # "mean", "max", "p95", None
+    img_pred: torch.Tensor,
+    img_target: torch.Tensor,
+    patch_size: int = 128,
+    stride: int = 2,             # si stride=2 → patch_size//2, overlap 50%
+    return_heatmap: bool = False,
+    score_mode: str = "mean",    # "mean", "max", "p95", None
 ):
     """
-    LPIPS basado en sliding windows. Cubre completamente la imagen y
-    permite generar un heatmap perceptual denso.
+    LPIPS sliding-window seguro y robusto para imágenes de cualquier tamaño.
+
+    - Usa torch.nn.Unfold para extraer todos los parches.
+    - Calcula LPIPS por parche (batching masivo, muy eficiente).
+    - Puede generar un heatmap perceptual (grid de LPIPS por tile).
+    - score_mode permite escoger cómo combinar los parches.
 
     Args:
-        lpips_metric: instancia de TorchMetrics LPIPS
+        lpips_metric: instancia de TorchMetrics LPIPS ya movida a device
         img_pred: tensor (B, 3, H, W)
         img_target: tensor (B, 3, H, W)
         patch_size: tamaño de ventana (64, 128, 256…)
-        stride: paso del sliding window. Stride = patch_size//2 = overlap 50%
+        stride: define overlap → stride_real = patch_size // stride
         return_heatmap: True para devolver heatmap perceptual
-        score_mode: "mean", "max", "p95", None
+        score_mode: "mean", "max", "p95" o None
 
     Returns:
-        heatmap (opcional), score_global (opcional)
+        heatmap (o None), score_global (o None)
     """
-    stride = patch_size // stride
+
+    # -------- 1. Normalización del stride --------
+    # Si stride=2 → stride_real = patch_size//2 (overlap 50%)
+    stride_real = patch_size // stride
 
     B, C, H, W = img_pred.shape
 
-    # Extraer patches (tipo unfold)
-    unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride)
+    # -------- 2. Caso especial: imagen más pequeña que el patch --------
+    if H < patch_size or W < patch_size:
+        # fallback: LPIPS normal en imagen completa
+        with torch.no_grad():
+            score = lpips_metric(img_pred, img_target).item()
 
-    pred_patches = unfold(img_pred)  # (B, C*ps*ps, N_patches)
-    tgt_patches = unfold(img_target)
+        heatmap = None
+        if return_heatmap:
+            heatmap = torch.tensor([[score]], device=img_pred.device)
 
-    # Reorganizar: (N_patches_total, 3, ps, ps)
+        return heatmap, score
+
+    # -------- 3. Extraer parches usando Unfold --------
+    unfold = torch.nn.Unfold(kernel_size=patch_size, stride=stride_real)
+
+    pred_patches = unfold(img_pred)    # (B, C*ps*ps, Npatches)
+    tgt_patches  = unfold(img_target)
+
     npatches = pred_patches.shape[-1]
 
+    # Si no hay parches → fallback (no debería pasar, pero por seguridad)
+    if npatches == 0:
+        with torch.no_grad():
+            score = lpips_metric(img_pred, img_target).item()
+        heatmap = None
+        return heatmap, score
+
+    # -------- 4. Reorganizar a batch gigante de parches --------
+    # (B, C*ps*ps, N) → (B, N, C*ps*ps) → (B*N, C, ps, ps)
     pred_patches = pred_patches.permute(0, 2, 1).reshape(-1, C, patch_size, patch_size)
-    tgt_patches = tgt_patches.permute(0, 2, 1).reshape(-1, C, patch_size, patch_size)
+    tgt_patches  = tgt_patches.permute(0, 2, 1).reshape(-1, C, patch_size, patch_size)
 
-    # LPIPS en batch → muy rápido
+    # -------- 5. LPIPS por parche --------
     with torch.no_grad():
-        patch_scores = lpips_metric(pred_patches, tgt_patches)  # shape (npatches,)
+        patch_scores = lpips_metric(pred_patches, tgt_patches)  # (B*Npatches,)
+        patch_scores = patch_scores.squeeze()
 
-    # ---- Opcional: Heatmap ----
+    # -------- 6. Crear heatmap seguro --------
     heatmap = None
     if return_heatmap:
-        # Reconstruir heatmap a la forma (B, H/stride, W/stride)
-        grid_h = (H - patch_size) // stride + 1
-        grid_w = (W - patch_size) // stride + 1
+        # tiles horizontales/verticales
+        grid_h = (H - patch_size) // stride_real + 1
+        grid_w = (W - patch_size) // stride_real + 1
+        expected = grid_h * grid_w * B
 
-        heatmap = patch_scores.reshape(B, grid_h, grid_w)
+        if expected == patch_scores.numel():
+            # reshape perfecto
+            heatmap = patch_scores.reshape(B, grid_h, grid_w)
+        else:
+            # fallback: heatmap 1D por patches
+            heatmap = patch_scores.reshape(B, -1)
 
-    # ---- Opcional: Score global ----
+    # -------- 7. Score global --------
     score = None
     if score_mode is not None:
-        if score_mode == "mean":
-            score = patch_scores.mean().item()
-        elif score_mode == "max":
-            score = patch_scores.max().item()
-        elif score_mode == "p95":
-            score = patch_scores.quantile(0.95).item()
+
+        if patch_scores.numel() == 1:
+            # caso seguro para patch único
+            score = patch_scores.item()
+
         else:
-            raise ValueError("score_mode inválido")
+            if score_mode == "mean":
+                score = patch_scores.mean().item()
+            elif score_mode == "max":
+                score = patch_scores.max().item()
+            elif score_mode == "p95":
+                score = torch.quantile(patch_scores, 0.95).item()
+            else:
+                raise ValueError(f"score_mode inválido: {score_mode}")
 
     return heatmap, score
+
+
