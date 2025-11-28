@@ -181,7 +181,7 @@ def validate(
                 lpips_metric,
                 output,
                 target_img,
-                patch_size=128,
+                patch_size=256,
                 return_heatmap=True,
                 score_mode="p95"
             )

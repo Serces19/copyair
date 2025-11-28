@@ -376,7 +376,7 @@ class HybridLoss(nn.Module):
         
         self.l1_loss = L1Loss()
         self.ssim_loss = SSIMLoss()
-        self.perceptual_loss = PerceptualLoss(tile_size=128, score_mode="p95", device=device)
+        self.perceptual_loss = PerceptualLoss(tile_size=256, score_mode="p95", device=device)
         self.laplacian_loss = LaplacianPyramidLoss(device=device)
         
         # Nuevas pérdidas
