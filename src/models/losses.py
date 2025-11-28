@@ -75,6 +75,7 @@ class PerceptualLoss(nn.Module):
                 t = target[:, :, y:y+T, x:x+T]
 
                 lp = self.lpips(p, t)     # LPIPS para este tile
+                self.lpips.reset()        # IMPORTANTE: Resetear para evitar acumulación de memoria
                 lpips_values.append(lp)
 
         # Convertir a tensor

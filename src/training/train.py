@@ -187,6 +187,7 @@ def validate(
             )
 
             accumulated_metrics["lpips_sliding"] = accumulated_metrics.get("lpips_sliding", 0.0) + score
+            lpips_metric.reset() # Resetear métrica para evitar leak
             
             num_batches += 1
     
