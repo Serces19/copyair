@@ -78,7 +78,7 @@ def load_model(model_path: str, config: dict, device: torch.device):
     return model
 
 
-def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv', lossless: bool = False):
+def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv', lossless: bool = False, tiled: bool = False, tile_size: int = 512, overlap: int = 64):
     """Predice en video"""
     
     # Cargar modelo
@@ -114,7 +114,10 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         target_fps=config['inference']['target_fps'],
         native_resolution=native_resolution,
         backend=backend,
-        lossless=lossless
+        lossless=lossless,
+        tiled=tiled,
+        tile_size=tile_size,
+        overlap=overlap
     )
     
     logger.info(f"✓ Salida generada: {output_path_modified}")
@@ -140,6 +143,9 @@ def main():
     parser.add_argument('--native-resolution', action='store_true', help='Usar resolución nativa del video (sin resize)')
     parser.add_argument('--backend', type=str, default='ffmpeg', choices=['opencv', 'ffmpeg'], help='Backend de video (opencv: fallback, ffmpeg: mejor calidad)')
     parser.add_argument('--lossless', action='store_true', help='Modo sin pérdidas (CRF 0 para video, PNG para secuencias)')
+    parser.add_argument('--tiled', action='store_true', help='Usar inferencia por tiles (Recomendado para HD/4K)')
+    parser.add_argument('--tile-size', type=int, default=512, help='Tamaño del tile (default: 512)')
+    parser.add_argument('--overlap', type=int, default=64, help='Solapamiento entre tiles (default: 64)')
     
     args = parser.parse_args()
     
@@ -153,7 +159,19 @@ def main():
     if args.extract_frames and args.video:
         extract_frames(args.video, config['data']['frames_dir'])
     elif args.video and args.output:
-        predict(config, args.model, args.video, args.output, device, args.native_resolution, args.backend, args.lossless)
+        predict(
+            config, 
+            args.model, 
+            args.video, 
+            args.output, 
+            device, 
+            args.native_resolution, 
+            args.backend, 
+            args.lossless,
+            tiled=args.tiled,
+            tile_size=args.tile_size,
+            overlap=args.overlap
+        )
     else:
         parser.print_help()
 

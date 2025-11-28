@@ -68,7 +68,10 @@ def predict_on_video(
     target_fps: int = 30,
     native_resolution: bool = False,
     backend: str = 'opencv',
-    lossless: bool = False
+    lossless: bool = False,
+    tiled: bool = False,
+    tile_size: int = 256,
+    overlap: int = 32
 ) -> str:
     """
     Aplica el modelo a todos los frames de un video
@@ -82,10 +85,14 @@ def predict_on_video(
         target_fps: FPS del video de salida
         native_resolution: Si es True, mantiene la resolución original (padding si es necesario)
         backend: 'opencv' (seguro para color) o 'ffmpeg' (mejor compresión)
+        tiled: Usar inferencia por tiles (ahorra VRAM, mejor calidad en HD)
+        tile_size: Tamaño del tile
+        overlap: Solapamiento entre tiles
     
     Returns:
         Ruta del video generado
     """
+    from src.training.tiled_inference import tiled_inference
     import subprocess
     import shutil
     
@@ -262,7 +269,14 @@ def predict_on_video(
         # Predicción
         with torch.no_grad():
             frame_tensor = frame_tensor.to(device)
-            pred = model(frame_tensor)
+            
+            if tiled:
+                # Inferencia por Tiles (Soporta HD/4K sin OOM y sin seams)
+                pred = tiled_inference(model, frame_tensor, tile_size, overlap, device)
+            else:
+                # Inferencia Estándar (Full Frame)
+                pred = model(frame_tensor)
+                
             pred = pred.squeeze(0).cpu().numpy()
             pred = np.transpose(pred, (1, 2, 0))
             
