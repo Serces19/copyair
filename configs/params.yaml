@@ -40,7 +40,7 @@ model:
 training:
   epochs: 5000
   batch_size: 8  # UNet puede manejar batch_size más grande
-  learning_rate: 1e-2 # Reducido para estabilidad (antes 1e-3 o 2e-4) 
+  learning_rate: 1e-3 # Reducido para estabilidad (antes 1e-3 o 2e-4) 
   weight_decay: 1e-4
   
   # Memory Optimization
@@ -74,15 +74,15 @@ training:
 
 # Parámetros de pérdida
 loss:
-  lambda_l1: 0.3
-  lambda_ssim: 0.2
-  lambda_perceptual: 0.5
+  lambda_l1: 0.0
+  lambda_ssim: 0.0
+  lambda_perceptual: 0.8
   lambda_laplacian: 0.0
   lambda_ffl: 0.00      # Focal Frequency Loss (Detalle fino)
   lambda_dreamsim: 0.00 # DreamSim Loss (Coherencia semántica)
   lambda_charbonnier: 0.0 # Charbonnier Loss (Robust L1) - Recomendado: 1.0 (si reemplaza L1)
   lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
-  lambda_multiscale: 0.5  # [NEW] Supervisión Estructural (Pyramid Loss)
+  lambda_multiscale: 0.2  # [NEW] Supervisión Estructural (Pyramid Loss)
 
 
 # Masked Loss (Entrenamiento Ponderado)
@@ -96,12 +96,12 @@ masked_loss:
 augmentation:
   enabled: true
   img_size: 256
-  horizontal_flip_p: 0.00
-  vertical_flip_p: 0.00
+  horizontal_flip_p: 0.1
+  vertical_flip_p: 0.1
   rotation_limit: 0
   gaussian_noise_p: 0.0
-  gaussian_blur_p: 0.0
-  color_jitter_p: 0.0
+  gaussian_blur_p: 0.1
+  color_jitter_p: 0.1
 
 # Hardware
 device: "cuda"  # cuda o cpu

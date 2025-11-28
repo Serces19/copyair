@@ -151,39 +151,13 @@ def validate(
             accumulated_metrics['ssim'] = accumulated_metrics.get('ssim', 0.0) + ssim_val
             
             # 3. Crop-LPIPS (Validación de Textura)
-            # Extraer 5 parches aleatorios de 256x256
-            # n_crops = 10
-            # crop_size = 128
-            # batch_lpips = 0.0
-            
-            # B, C, H, W = output.shape
-            
-            # # Si la imagen es más pequeña que el crop, usar la imagen entera
-            # if H < crop_size or W < crop_size:
-            #     batch_lpips = lpips_metric(output, target_img).item()
-            # else:
-            #     for _ in range(n_crops):
-            #         # Coordenadas aleatorias
-            #         h_start = random.randint(0, H - crop_size)
-            #         w_start = random.randint(0, W - crop_size)
-                    
-            #         # Recortar
-            #         crop_pred = output[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
-            #         crop_target = target_img[:, :, h_start:h_start+crop_size, w_start:w_start+crop_size]
-                    
-            #         # Calcular LPIPS del parche
-            #         batch_lpips += lpips_metric(crop_pred, crop_target).item()
-                
-            #     batch_lpips /= n_crops
-            
-            # accumulated_metrics['crop_lpips'] = accumulated_metrics.get('crop_lpips', 0.0) + batch_lpips
             heat, score = lpips_sliding_window(
                 lpips_metric,
                 output,
                 target_img,
                 patch_size=256,
-                return_heatmap=True,
-                score_mode="p95"
+                return_heatmap=False,
+                score_mode="mean"
             )
 
             accumulated_metrics["lpips_sliding"] = accumulated_metrics.get("lpips_sliding", 0.0) + score

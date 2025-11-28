@@ -49,7 +49,12 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         #     norm=norm,
         #     activation=activation
         # )
-        return UNet()
+        return UNet(
+            base_channels=64,
+            activation=activation,  # o 'gelu'
+            dropout=dropout_p,
+            output_activation='tanh'  # o 'sigmoid' para segmentación
+        )
   
     if arch == 'modernunet':
         return ModernUNet(

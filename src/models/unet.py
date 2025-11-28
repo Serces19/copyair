@@ -227,65 +227,238 @@
 #         return torch.clamp(final_out, -1, 1)
 
 
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+
+# class SimpleConvBlock(nn.Module):
+#     """Conv -> BN -> ReLU -> Conv -> BN -> ReLU"""
+#     def __init__(self, in_ch, out_ch):
+#         super().__init__()
+#         self.conv = nn.Sequential(
+#             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
+#             nn.BatchNorm2d(out_ch),
+#             nn.ReLU(inplace=True),
+#             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
+#             nn.BatchNorm2d(out_ch),
+#             nn.ReLU(inplace=True)
+#         )
+
+#     def forward(self, x):
+#         return self.conv(x)
+
+# class UNet(nn.Module):
+#     def __init__(self, in_channels=3, out_channels=3, base_channels=64):
+#         super().__init__()
+        
+#         # --- ENCODER ---
+#         self.inc = SimpleConvBlock(in_channels, base_channels)
+#         self.down1 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels, base_channels*2))
+#         self.down2 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*2, base_channels*4))
+#         self.down3 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*4, base_channels*8))
+
+#         # --- DECODER ---
+#         # Up3
+#         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+#         self.conv3 = SimpleConvBlock(base_channels*8 + base_channels*4, base_channels*4)
+        
+#         # Up2
+#         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+#         self.conv2 = SimpleConvBlock(base_channels*4 + base_channels*2, base_channels*2)
+        
+#         # Up1
+#         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+#         self.conv1 = SimpleConvBlock(base_channels*2 + base_channels, base_channels)
+
+#         # --- OUTPUT ---
+#         self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+#         self.tanh = nn.Tanh() # Asumiendo que tus datos van de [-1, 1]
+
+#     def forward(self, x):
+#         # Encoder
+#         x1 = self.inc(x)
+#         x2 = self.down1(x1)
+#         x3 = self.down2(x2)
+#         x4 = self.down3(x3) # Bottleneck
+
+#         # Decoder
+        
+#         # Bloque 3
+#         x_up3 = self.up3(x4)
+#         # Padding por si las dimensiones no cuadran (impar)
+#         if x_up3.shape != x3.shape:
+#             x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
+#         x = torch.cat([x_up3, x3], dim=1)
+#         x = self.conv3(x)
+
+#         # Bloque 2
+#         x_up2 = self.up2(x)
+#         if x_up2.shape != x2.shape:
+#             x_up2 = F.interpolate(x_up2, size=x2.shape[2:], mode='bilinear', align_corners=True)
+#         x = torch.cat([x_up2, x2], dim=1)
+#         x = self.conv2(x)
+
+#         # Bloque 1
+#         x_up1 = self.up1(x)
+#         if x_up1.shape != x1.shape:
+#             x_up1 = F.interpolate(x_up1, size=x1.shape[2:], mode='bilinear', align_corners=True)
+#         x = torch.cat([x_up1, x1], dim=1)
+#         x = self.conv1(x)
+
+#         # Salida
+#         return self.tanh(self.outc(x))
+
+
+
+
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 class SimpleConvBlock(nn.Module):
-    """Conv -> BN -> ReLU -> Conv -> BN -> ReLU"""
-    def __init__(self, in_ch, out_ch):
+    """Conv -> Norm -> Activation -> Conv -> Norm -> Activation"""
+    def __init__(self, in_ch, out_ch, activation='relu', norm_type='batch', groups=32, dropout=0.0):
         super().__init__()
-        self.conv = nn.Sequential(
+        
+        # Función de activación
+        activation_fn = self._get_activation(activation)
+        
+        # Capa de normalización
+        norm1 = self._get_norm(norm_type, out_ch, groups)
+        norm2 = self._get_norm(norm_type, out_ch, groups)
+        
+        layers = [
             nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
+            norm1,
+            activation_fn,
+        ]
+        
+        # Añadir dropout si es mayor que 0
+        if dropout > 0:
+            layers.append(nn.Dropout2d(dropout))
+            
+        layers.extend([
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
+            norm2,
+            activation_fn,
+        ])
+        
+        if dropout > 0:
+            layers.append(nn.Dropout2d(dropout))
+            
+        self.conv = nn.Sequential(*layers)
+
+    def _get_activation(self, activation):
+        activations = {
+            'relu': nn.ReLU(inplace=True),
+            'silu': nn.SiLU(inplace=True),
+            'gelu': nn.GELU(),
+            'mish': nn.Mish(inplace=True),
+            'leakyrelu': nn.LeakyReLU(0.1, inplace=True)
+        }
+        return activations.get(activation.lower(), nn.ReLU(inplace=True))
+
+    def _get_norm(self, norm_type, channels, groups=32):
+        if norm_type.lower() == 'batch':
+            return nn.BatchNorm2d(channels)
+        elif norm_type.lower() == 'group':
+            # Asegurar que groups no sea mayor que channels
+            actual_groups = min(groups, channels)
+            # Asegurar que channels sea divisible por groups
+            if channels % actual_groups != 0:
+                actual_groups = 1
+            return nn.GroupNorm(actual_groups, channels)
+        elif norm_type.lower() == 'instance':
+            return nn.InstanceNorm2d(channels)
+        else:
+            return nn.BatchNorm2d(channels)  # default
 
     def forward(self, x):
         return self.conv(x)
 
 class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, base_channels=32):
+    def __init__(self, 
+                 in_channels=3, 
+                 out_channels=3, 
+                 base_channels=64,
+                 activation='silu',
+                 norm_type='group',
+                 groups=16,
+                 dropout=0.0,
+                 use_attention=False,  # Nuevo parámetro opcional
+                 output_activation='tanh'):
         super().__init__()
         
+        self.use_attention = use_attention
+        
         # --- ENCODER ---
-        self.inc = SimpleConvBlock(in_channels, base_channels)
-        self.down1 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels, base_channels*2))
-        self.down2 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*2, base_channels*4))
-        self.down3 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*4, base_channels*8))
+        self.inc = SimpleConvBlock(in_channels, base_channels, activation, norm_type, groups, dropout)
+        self.down1 = nn.Sequential(
+            nn.MaxPool2d(2), 
+            SimpleConvBlock(base_channels, base_channels*2, activation, norm_type, groups, dropout)
+        )
+        self.down2 = nn.Sequential(
+            nn.MaxPool2d(2), 
+            SimpleConvBlock(base_channels*2, base_channels*4, activation, norm_type, groups, dropout)
+        )
+        self.down3 = nn.Sequential(
+            nn.MaxPool2d(2), 
+            SimpleConvBlock(base_channels*4, base_channels*8, activation, norm_type, groups, dropout)
+        )
+
+        # --- ATTENTION (opcional) ---
+        if use_attention:
+            self.attention = nn.MultiheadAttention(base_channels*8, 8)  # Simple attention
 
         # --- DECODER ---
         # Up3
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv3 = SimpleConvBlock(base_channels*8 + base_channels*4, base_channels*4)
+        self.conv3 = SimpleConvBlock(base_channels*8 + base_channels*4, base_channels*4, activation, norm_type, groups, dropout)
         
         # Up2
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv2 = SimpleConvBlock(base_channels*4 + base_channels*2, base_channels*2)
+        self.conv2 = SimpleConvBlock(base_channels*4 + base_channels*2, base_channels*2, activation, norm_type, groups, dropout)
         
         # Up1
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv1 = SimpleConvBlock(base_channels*2 + base_channels, base_channels)
+        self.conv1 = SimpleConvBlock(base_channels*2 + base_channels, base_channels, activation, norm_type, groups, dropout)
 
         # --- OUTPUT ---
         self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
-        self.tanh = nn.Tanh() # Asumiendo que tus datos van de [-1, 1]
+        
+        # Función de activación de salida
+        self.output_activation = self._get_output_activation(output_activation)
+
+    def _get_output_activation(self, activation):
+        activations = {
+            'tanh': nn.Tanh(),
+            'sigmoid': nn.Sigmoid(),
+            'relu': nn.ReLU(inplace=True),
+            'none': nn.Identity(),
+            'leakyrelu': nn.LeakyReLU(0.1, inplace=True)
+        }
+        return activations.get(activation.lower(), nn.Tanh())
 
     def forward(self, x):
         # Encoder
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
-        x4 = self.down3(x3) # Bottleneck
+        x4 = self.down3(x3)  # Bottleneck
+
+        # Attention (opcional)
+        if self.use_attention:
+            # Reshape para attention: (B, C, H, W) -> (H*W, B, C)
+            batch_size, channels, height, width = x4.shape
+            x4_flat = x4.view(batch_size, channels, -1).permute(2, 0, 1)
+            x4_att, _ = self.attention(x4_flat, x4_flat, x4_flat)
+            x4 = x4_att.permute(1, 2, 0).view(batch_size, channels, height, width)
 
         # Decoder
-        
         # Bloque 3
         x_up3 = self.up3(x4)
-        # Padding por si las dimensiones no cuadran (impar)
         if x_up3.shape != x3.shape:
             x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x_up3, x3], dim=1)
@@ -306,4 +479,4 @@ class UNet(nn.Module):
         x = self.conv1(x)
 
         # Salida
-        return self.tanh(self.outc(x))
+        return self.output_activation(self.outc(x))
