@@ -207,7 +207,7 @@ def lpips_sliding_window(
     img_pred,
     img_target,
     patch_size=128,
-    stride=patch_size // 2,   # overlap del 50%
+    stride=2,   # overlap del 50%
     return_heatmap=False,
     score_mode="mean",        # "mean", "max", "p95", None
 ):
@@ -227,6 +227,7 @@ def lpips_sliding_window(
     Returns:
         heatmap (opcional), score_global (opcional)
     """
+    stride = patch_size // stride
 
     B, C, H, W = img_pred.shape
 
