@@ -44,6 +44,8 @@ def get_transforms(
     # Transformaciones geométricas (aplicar a Input y GT por igual)
     if augment:
         # Multi-Scale Training (Zoom-Out)
+        geometric_transforms = []
+        
         # Escalar hacia abajo para que el crop cubra más área (contexto global)
         scale_limit = aug_config.get('random_scale_limit', 0.0)
         if scale_limit != 0:
