@@ -186,7 +186,7 @@ def validate(
                 score_mode="p95"
             )
 
-            accumulated_metrics["lpips_sliding"] = score
+            accumulated_metrics["lpips_sliding"] = accumulated_metrics.get("lpips_sliding", 0.0) + score
             
             num_batches += 1
     

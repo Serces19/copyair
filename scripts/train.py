@@ -348,9 +348,9 @@ def train(config: dict, device: torch.device):
                     mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                     mlflow.log_metric('val/psnr', val_metrics['val_psnr'], step=epoch)
                     mlflow.log_metric('val/ssim', val_metrics['val_ssim'], step=epoch)
-                    mlflow.log_metric('val/crop_lpips', val_metrics['lpips_sliding'], step=epoch)
+                    mlflow.log_metric('val/crop_lpips', val_metrics['val_lpips_sliding'], step=epoch)
                     mlflow.log_metric('time/val_duration', val_time, step=epoch)
-                    logger.info(f"[Validación] Loss: {val_metrics['val_loss']:.4f} | PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS(Crop): {val_metrics['lpips_sliding']:.4f}")
+                    logger.info(f"[Validación] Loss: {val_metrics['val_loss']:.4f} | PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS(Crop): {val_metrics['val_lpips_sliding']:.4f}")
                 else:
                     val_metrics = None
 
@@ -413,7 +413,7 @@ def train(config: dict, device: torch.device):
                         f"Train Loss: {train_metrics['loss']:.4f} | "
                         f"Val Loss: {val_metrics['val_loss']:.4f} | "
                         f"PSNR: {val_metrics['val_psnr']:.2f} | "
-                        f"LPIPS: {val_metrics['lpips_sliding']:.4f}"
+                        f"LPIPS: {val_metrics['val_lpips_sliding']:.4f}"
                     )
                 else:
                     logger.info(
@@ -502,7 +502,7 @@ def train(config: dict, device: torch.device):
                 f"Val Loss: {val_metrics['val_loss']:.4f} | "
                 f"PSNR: {val_metrics['val_psnr']:.2f} | "
                 f"SSIM: {val_metrics['val_ssim']:.3f} | "
-                f"LPIPS: {val_metrics['lpips_sliding']:.4f}"
+                f"LPIPS: {val_metrics['val_lpips_sliding']:.4f}"
             )
 
 
