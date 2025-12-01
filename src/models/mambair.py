@@ -170,7 +170,7 @@ class MambaIRv2(nn.Module):
         in_channels=3, 
         out_channels=3, 
         embed_dim=64, 
-        depths=[2, 2, 2, 2], 
+        depths=[4, 4, 4, 4], 
         num_heads=[2, 2, 2, 2], # No usado en Mamba puro, pero mantenido por compatibilidad de config
         window_size=8, # No usado en Mamba puro
         mlp_ratio=4., 

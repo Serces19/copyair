@@ -16,7 +16,7 @@ import time
 import signal
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
+import numpy as np
 from src.data import PairedImageDataset, get_transforms
 from src.models import HybridLoss
 from src.models.factory import get_model, get_optimizer
@@ -28,7 +28,7 @@ from albumentations import Normalize
 from albumentations.pytorch import ToTensorV2
 import albumentations as A
 from torch.utils.data import RandomSampler
-
+import os
 
 # Configurar logging: asegurarse de que haya un handler que imprima INFO
 root_logger = logging.getLogger()
@@ -342,31 +342,32 @@ def train(config: dict, device: torch.device):
                 val_interval = config['training'].get('val_interval', 50)
                 if epoch == 0 or epoch % val_interval == 0:
                     t_val_start = time.time()
-                    val_metrics = validate(model, val_loader, loss_fn, device)
+                    val_metrics, pred_img = validate(model, val_loader, loss_fn, device)
                     val_time = time.time() - t_val_start
+                    input_img = val_loader['input'][:1].to(device)
+                    gt_img = val_loader['gt'][:1].to(device)
                     # Registramos todas las métricas de validación
-                    mlflow.log_metric('val/loss', val_metrics['val_loss'], step=epoch)
                     mlflow.log_metric('val/psnr', val_metrics['val_psnr'], step=epoch)
                     mlflow.log_metric('val/ssim', val_metrics['val_ssim'], step=epoch)
                     mlflow.log_metric('val/crop_lpips', val_metrics['val_lpips_sliding'], step=epoch)
                     mlflow.log_metric('time/val_duration', val_time, step=epoch)
-                    logger.info(f"[Validación] Loss: {val_metrics['val_loss']:.4f} | PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS(Crop): {val_metrics['val_lpips_sliding']:.4f}")
+                    logger.info(f"[Validación] PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS(Crop): {val_metrics['val_lpips_sliding']:.4f}")
                 else:
                     val_metrics = None
 
-                # Visualización de validación cada 200 épocas
-                if (epoch + 1) % 200 == 0:
+                # Visualización de validación cada 250 épocas
+                if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
                     try:
                         viz_start = time.time()
                         # Obtener un batch de validación
-                        val_batch = next(iter(val_loader))
-                        input_img = val_batch['input'][:1].to(device)  # Solo primera imagen
-                        gt_img = val_batch['gt'][:1].to(device)
+                        # val_batch = next(iter(val_loader))
+                        # input_img = val_batch['input'][:1].to(device)  # Solo primera imagen
+                        # gt_img = val_batch['gt'][:1].to(device)
                         
-                        # Predicción
-                        model.eval()
-                        with torch.no_grad():
-                            pred_img = model(input_img)
+                        # # Predicción
+                        # model.eval()
+                        # with torch.no_grad():
+                        #     pred_img = model(input_img)
                         
                         # Denormalizar de [-1, 1] a [0, 1] para visualización
                         def denormalize(tensor):
@@ -379,7 +380,6 @@ def train(config: dict, device: torch.device):
                         pred_vis = denormalize(pred_img[0].cpu()).numpy()
                         
                         # Convertir CHW a HWC para guardar
-                        import numpy as np
                         input_vis = np.transpose(input_vis, (1, 2, 0))
                         gt_vis = np.transpose(gt_vis, (1, 2, 0))
                         pred_vis = np.transpose(pred_vis, (1, 2, 0))
@@ -392,7 +392,6 @@ def train(config: dict, device: torch.device):
                         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
                             Image.fromarray(comparison).save(f.name)
                             mlflow.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
-                            import os
                             os.unlink(f.name)
                         viz_time = time.time() - viz_start
                         mlflow.log_metric('time/viz_duration', viz_time, step=epoch)
@@ -494,7 +493,7 @@ def train(config: dict, device: torch.device):
                 break
                 
             train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch)
-            val_metrics = validate(model, val_loader, loss_fn, device)
+            val_metrics, output = validate(model, val_loader, loss_fn, device)
             scheduler.step()
             logger.info(
                 f"Época {epoch + 1}/{config['training']['epochs']} | "

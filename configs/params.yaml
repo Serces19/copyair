@@ -67,6 +67,7 @@ training:
   # Si es 0, se entrena con TODO el dataset y se valida con 1 muestra aleatoria (sin augs) por época
   val_split: 0
   val_interval: 25  # Validar cada N épocas (para eficiencia en few-shot)
+  viz_interval: 250
   
   # Checkpoint
   save_interval: 500

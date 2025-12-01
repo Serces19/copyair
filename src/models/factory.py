@@ -7,10 +7,10 @@ import torch.optim as optim
 from typing import Dict, Any
 from .unet import UNet
 from .modernUnet import ModernUNet
-from .architectures import ConvexNet, MambaIRv2, UMamba, NAFNetHD
-from .nafnet import nafnet_small, nafnet_base, nafnet_large
-from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base
-from .mambair import mambair_tiny, mambair_base, mambair_large
+from .architectures import UMamba
+from .nafnet import nafnet_small, nafnet_base, nafnet_large, NAFNetHD
+from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base, ConvNeXtUNet
+from .mambair import mambair_tiny, mambair_base, mambair_large, MambaIRv2
 
 def get_model(config: Dict[str, Any]) -> nn.Module:
     """
@@ -68,13 +68,10 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
             out_channels = out_channels, # Igual que antes (ej. 3)
             base_channels = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
         )
-    elif arch == 'convexnet':
-        return ConvexNet(in_channels, out_channels, base_channels, activation)
-    elif arch == 'mambairv2':
-        return MambaIRv2(in_channels, out_channels, base_channels, activation)
+
     elif arch == 'umamba':
         return UMamba(in_channels, out_channels, base_channels, activation)
-    elif arch == 'nafnet' or arch == 'nafnethd':
+    elif arch == 'nafnet':
         # NAFNet usa dropout_p como drop_out_rate si use_dropout es True
         drop_rate = dropout_p if use_dropout else 0.0
         

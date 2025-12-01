@@ -173,7 +173,7 @@ def validate(
     # Asegurar que existe val_loss
     final_metrics['val_loss'] = final_metrics.get('val_total', 0.0)
     
-    return final_metrics
+    return final_metrics, output
 
 
 
