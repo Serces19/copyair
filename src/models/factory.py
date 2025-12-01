@@ -66,7 +66,7 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         return ModernUNet(
             in_channels = in_channels,   # Igual que antes (ej. 3)
             out_channels = out_channels, # Igual que antes (ej. 3)
-            base_dim = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
+            base_channels = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
         )
     elif arch == 'convexnet':
         return ConvexNet(in_channels, out_channels, base_channels, activation)

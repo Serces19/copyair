@@ -232,35 +232,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# --- BUILDING BLOCKS DE LA MODERN UNET (Cerebro) ---
-
-class LayerNorm2d(nn.Module):
-    def __init__(self, channels, eps=1e-6):
-        super().__init__()
-        self.weight = nn.Parameter(torch.ones(channels))
-        self.bias = nn.Parameter(torch.zeros(channels))
-        self.eps = eps
-
-    def forward(self, x):
-        u = x.mean(1, keepdim=True)
-        s = (x - u).pow(2).mean(1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.eps)
-        x = self.weight[:, None, None] * x + self.bias[:, None, None]
-        return x
+# --- COMPONENTES MODIFICADOS (AGRESIVOS) ---
 
 class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return x1 * x2
 
-class GatedBlock(nn.Module):
+class StrictGatedBlock(nn.Module):
     """
-    El cerebro de NAFNet: Permite cambios estructurales y semánticos.
+    Versión 'Hardcore' del GatedBlock.
+    - Sin LayerScale (beta).
+    - Sin Residual Connection (input + x) -> Obliga a aprender la transformación completa.
+    - Usa GroupNorm en lugar de LayerNorm (Mejor para batch pequeño/few-shot).
     """
-    def __init__(self, c, ffn_expansion_factor=2):
+    def __init__(self, c, ffn_expansion_factor=2, use_residual=False): # <--- Flag importante
         super().__init__()
-        self.norm1 = LayerNorm2d(c)
-        self.norm2 = LayerNorm2d(c)
+        self.use_residual = use_residual
+        
+        # Volvemos a GroupNorm (lo que funcionó en tu Vanilla UNet)
+        self.norm1 = nn.GroupNorm(num_groups=16, num_channels=c)
+        self.norm2 = nn.GroupNorm(num_groups=16, num_channels=c)
 
         # Spatial Mixing
         self.conv1 = nn.Conv2d(c, c, kernel_size=1)
@@ -276,12 +268,13 @@ class GatedBlock(nn.Module):
         self.sca = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(c, c, 1),
+            nn.Sigmoid() # Sigmoid es vital aquí
         )
-        
-        self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
     def forward(self, x):
         input = x
+        
+        # Proceso
         x = self.norm1(x)
         x = self.conv1(x)
         x = self.dwconv(x)
@@ -289,58 +282,60 @@ class GatedBlock(nn.Module):
         x = self.sg(x)
         x = self.conv3(x)
         x = x * self.sca(x)
-        return input + x * self.beta
+        
+        # DECISIÓN CRÍTICA:
+        # Si use_residual es False, la red NO puede copiar la entrada.
+        # Tiene que generar la salida desde cero.
+        if self.use_residual:
+            return input + x
+        else:
+            return x # <-- Aquí forzamos el aprendizaje estructural
 
-# --- ESQUELETO DE LA SIMPLE UNET (Cuerpo Estable) ---
+# --- ARQUITECTURA PRINCIPAL ---
 
 class ModernUNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, base_channels=64):
+    def __init__(self, in_channels=3, out_channels=3, base_channels=32):
         super().__init__()
         
-        # 1. ENCODER
-        # Entrada: Conv normal para adaptar canales
+        # 1. ENCODER (Sin residuos = Aprendizaje forzado)
         self.inc = nn.Conv2d(in_channels, base_channels, 3, padding=1)
         
-        # Bloque 1 (Resolución completa)
-        self.block1 = GatedBlock(base_channels)
+        # Usamos use_residual=False en el Encoder para forzar abstracción
+        self.block1 = StrictGatedBlock(base_channels, use_residual=False)
         
-        # Down 1
-        self.down1 = nn.MaxPool2d(2)
-        self.expand1 = nn.Conv2d(base_channels, base_channels*2, 1) # Aumentar canales
-        self.block2 = nn.Sequential(GatedBlock(base_channels*2), GatedBlock(base_channels*2))
+        self.down1 = nn.MaxPool2d(2) # MaxPool (Destructivo, bueno para limpiar)
+        self.expand1 = nn.Conv2d(base_channels, base_channels*2, 1)
+        self.block2 = StrictGatedBlock(base_channels*2, use_residual=False)
         
-        # Down 2
         self.down2 = nn.MaxPool2d(2)
         self.expand2 = nn.Conv2d(base_channels*2, base_channels*4, 1)
-        self.block3 = nn.Sequential(GatedBlock(base_channels*4), GatedBlock(base_channels*4))
+        self.block3 = StrictGatedBlock(base_channels*4, use_residual=False)
         
-        # Down 3 (Bottleneck)
+        # Bottleneck (Aquí permitimos residuales para profundidad)
         self.down3 = nn.MaxPool2d(2)
         self.expand3 = nn.Conv2d(base_channels*4, base_channels*8, 1)
-        # Más bloques en el bottleneck para aprender estructura global
         self.bottleneck = nn.Sequential(
-            GatedBlock(base_channels*8), 
-            GatedBlock(base_channels*8),
-            GatedBlock(base_channels*8)
+            StrictGatedBlock(base_channels*8, use_residual=True), 
+            StrictGatedBlock(base_channels*8, use_residual=True)
         )
 
-        # 2. DECODER (Usando Bilinear Upsample para estabilidad en video)
+        # 2. DECODER (Bilinear para video)
         
         # Up 3
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        # Reducción de canales post-concatenación
         self.reduce3 = nn.Conv2d(base_channels*8 + base_channels*4, base_channels*4, 1)
-        self.dec3 = GatedBlock(base_channels*4)
+        # En el decoder activamos residuales para refinar
+        self.dec3 = StrictGatedBlock(base_channels*4, use_residual=True)
         
         # Up 2
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.reduce2 = nn.Conv2d(base_channels*4 + base_channels*2, base_channels*2, 1)
-        self.dec2 = GatedBlock(base_channels*2)
+        self.dec2 = StrictGatedBlock(base_channels*2, use_residual=True)
         
         # Up 1
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.reduce1 = nn.Conv2d(base_channels*2 + base_channels, base_channels, 1)
-        self.dec1 = GatedBlock(base_channels)
+        self.dec1 = StrictGatedBlock(base_channels, use_residual=True)
         
         # 3. OUTPUT
         self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
@@ -349,23 +344,22 @@ class ModernUNet(nn.Module):
     def forward(self, x):
         # Encoder
         x1 = self.inc(x)
-        x1 = self.block1(x1)         # Skip 1
+        x1 = self.block1(x1) # Sin residual, transforma agresivamente
         
         x2 = self.down1(x1)
         x2 = self.expand1(x2)
-        x2 = self.block2(x2)         # Skip 2
+        x2 = self.block2(x2)
         
         x3 = self.down2(x2)
         x3 = self.expand2(x3)
-        x3 = self.block3(x3)         # Skip 3
+        x3 = self.block3(x3)
         
         x4 = self.down3(x3)
         x4 = self.expand3(x4)
-        x4 = self.bottleneck(x4)     # Bottleneck
+        x4 = self.bottleneck(x4)
         
         # Decoder
         x_up3 = self.up3(x4)
-        # Padding de seguridad
         if x_up3.shape != x3.shape:
              x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
         x = torch.cat([x_up3, x3], dim=1)
