@@ -57,11 +57,16 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
         )
   
     if arch == 'modernunet':
+        # return ModernUNet(
+        #     in_channels = in_channels,   # Igual que antes (ej. 3)
+        #     out_channels = out_channels, # Igual que antes (ej. 3)
+        #     base_dim = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
+        #     num_blocks = [6, 4, 4, 4]    # NUEVO: Controla la profundidad por nivel
+        # )
         return ModernUNet(
             in_channels = in_channels,   # Igual que antes (ej. 3)
             out_channels = out_channels, # Igual que antes (ej. 3)
             base_dim = base_channels,    # Tu antiguo 'base_channels' (ej. 32 o 64)
-            num_blocks = [6, 4, 4, 4]    # NUEVO: Controla la profundidad por nivel
         )
     elif arch == 'convexnet':
         return ConvexNet(in_channels, out_channels, base_channels, activation)

@@ -33,7 +33,7 @@ model:
   # Opciones avanzadas de arquitectura (UNet, ConvNeXt, NAFNet)
   use_batchnorm: false    # Solo UNet
   use_dropout: false     # UNet y NAFNet
-  dropout_p: 0.01         # Probabilidad de dropout
+  dropout_p: 0.00         # Probabilidad de dropout
   use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
 
 # Parámetros de entrenamiento
@@ -94,7 +94,7 @@ masked_loss:
 
 # Aumentación de datos
 augmentation:
-  enabled: true
+  enabled: false
   img_size: 256
   horizontal_flip_p: 0.1
   vertical_flip_p: 0.1
