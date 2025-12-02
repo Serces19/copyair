@@ -279,7 +279,7 @@ def train(config: dict, device: torch.device):
             mlflow_logger.log_metric('train/loss', train_metrics['loss'], step=epoch)
 
             # Loguear muestra de entrenamiento
-            log_training_sample(train_loader, mlflow_logger, device)
+            #log_training_sample(train_loader, mlflow_logger, device)
 
             # --- Validación ---
             val_metrics = None
