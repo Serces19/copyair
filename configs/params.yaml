@@ -76,14 +76,14 @@ training:
 # Parámetros de pérdida
 loss:
   lambda_l1: 0.0
-  lambda_ssim: 0.0
+  lambda_ssim: 0.2
   lambda_perceptual: 0.8
   lambda_laplacian: 0.0
   lambda_ffl: 0.00      # Focal Frequency Loss (Detalle fino)
   lambda_dreamsim: 0.00 # DreamSim Loss (Coherencia semántica)
   lambda_charbonnier: 0.0 # Charbonnier Loss (Robust L1) - Recomendado: 1.0 (si reemplaza L1)
   lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
-  lambda_multiscale: 0.2  # [NEW] Supervisión Estructural (Pyramid Loss)
+  lambda_multiscale: 0.3  # [NEW] Supervisión Estructural (Pyramid Loss)
 
 
 # Masked Loss (Entrenamiento Ponderado)
@@ -95,10 +95,10 @@ masked_loss:
 
 # Aumentación de datos
 augmentation:
-  enabled: false
+  enabled: true
   img_size: 256
-  horizontal_flip_p: 0.1
-  vertical_flip_p: 0.1
+  horizontal_flip_p: 0.0
+  vertical_flip_p: 0.0
   rotation_limit: 0
   gaussian_noise_p: 0.0
   gaussian_blur_p: 0.1

@@ -30,23 +30,23 @@ SEARCH_SPACE = {
     'model': {
         'architecture': ['unet'],  # Puedes agregar: 'convexnet', 'mambairv2', etc.
         'activation': ['gelu', 'silu', 'mish'],
-        'base_channels': [128, 64],
-        'dropout_p': [0.0, 0.2],
+        'base_channels': [32, 64],
+        'dropout_p': [0.0, 0.02],
         
     },
     'training': {
-        'learning_rate': [0.001],
-        'batch_size': [8, 16],
+        'learning_rate': [0.001, 0.0001],
+        'batch_size': [8],
         'optimizer': {
             'type': ['adamw'],
         }
     },
     'loss': {
         'lambda_l1': [0.0],
-        'lambda_ssim': [0.0, 0.2],
+        'lambda_ssim': [0.2],
         'lambda_perceptual': [0.8],
         'lambda_laplacian': [0.0],
-        'lambda_multiscale': [0.2, 0.4]
+        'lambda_multiscale': [0.3]
     },
     'augmentation':{
         'enabled':[True, False],
