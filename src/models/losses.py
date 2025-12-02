@@ -35,6 +35,7 @@ class PerceptualLoss(nn.Module):
 
     def forward(self, pred, target):
         distance = self.lpips(pred, target)
+        self.lpips.reset()
         return distance
 
 
