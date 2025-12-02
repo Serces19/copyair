@@ -254,9 +254,6 @@ def train(config: dict, device: torch.device):
     # Iniciar MLflow run
     mlflow_logger.start_run()
     mlflow_logger.log_params(config)
-    
-    # Loguear muestra de entrenamiento
-    log_training_sample(train_loader, mlflow_logger, device)
 
     min_delta = 0.02
     epsilon = 1e-8
@@ -278,6 +275,9 @@ def train(config: dict, device: torch.device):
         # --- Entrenamiento ---
         train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch)
         mlflow_logger.log_metric('train/loss', train_metrics['loss'], step=epoch)
+
+        # Loguear muestra de entrenamiento
+        log_training_sample(train_loader, mlflow_logger, device)
 
         # --- Validación ---
         val_metrics = None

@@ -18,7 +18,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.train import train, setup_device, load_config
+from scripts.train import train
+from src.utils.common_utils import load_config, setup_device
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
