@@ -173,7 +173,8 @@ def validate(
     # Asegurar que existe val_loss
     final_metrics['val_loss'] = final_metrics.get('val_total', 0.0)
     
-    return final_metrics, output
+    # Retornar también input y target del último batch para visualización
+    return final_metrics, input_img, target_img, output
 
 
 
