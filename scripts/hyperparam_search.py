@@ -29,21 +29,27 @@ logger = logging.getLogger(__name__)
 SEARCH_SPACE = {
     'model': {
         'architecture': ['unet'],  # Puedes agregar: 'convexnet', 'mambairv2', etc.
-        'activation': ['relu', 'gelu', 'silu', 'mish'],
-        'base_channels': [32, 64],
+        'activation': ['gelu', 'silu', 'mish'],
+        'base_channels': [128, 64],
+        'dropout_p': [0.0, 0.2],
+        
     },
     'training': {
-        'learning_rate': [0.0001, 0.0005, 0.001, 0.005],
-        'batch_size': [4, 8],
+        'learning_rate': [0.001],
+        'batch_size': [8, 16],
         'optimizer': {
             'type': ['adamw'],
         }
     },
     'loss': {
-        'lambda_l1': [0.5, 0.6, 0.7],
-        'lambda_ssim': [0.1, 0.2, 0.3],
-        'lambda_perceptual': [0.1, 0.15, 0.2],
-        'lambda_laplacian': [0.0, 0.05, 0.1],
+        'lambda_l1': [0.0],
+        'lambda_ssim': [0.0, 0.2],
+        'lambda_perceptual': [0.8],
+        'lambda_laplacian': [0.0],
+        'lambda_multiscale': [0.2, 0.4]
+    },
+    'augmentation':{
+        'enabled':[True, False],
     }
 }
 
@@ -201,7 +207,7 @@ def main():
     parser.add_argument('--config', type=str, default='configs/params.yaml', help='Config base')
     parser.add_argument('--search-type', type=str, default='random', choices=['grid', 'random'], 
                         help='Tipo de búsqueda')
-    parser.add_argument('--max-trials', type=int, default=10, 
+    parser.add_argument('--max-trials', type=int, default=30, 
                         help='Número máximo de experimentos')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo (cuda/cpu)')
     

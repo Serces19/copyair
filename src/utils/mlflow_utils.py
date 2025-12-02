@@ -61,6 +61,10 @@ class MLflowLogger:
             except Exception as e:
                 logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
 
+    def end_run(self):
+        if self.enabled:
+            mlflow.end_run()
+
     def _flatten(self, d: dict, parent_key: str = '', sep: str = '.') -> dict:
         items = {}
         for k, v in d.items():
