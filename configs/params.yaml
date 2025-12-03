@@ -32,7 +32,6 @@ model:
   
   # Opciones avanzadas de arquitectura (UNet, ConvNeXt, NAFNet)
   use_batchnorm: false    # Solo UNet
-  use_dropout: false     # UNet y NAFNet
   dropout_p: 0.00         # Probabilidad de dropout
   use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
 

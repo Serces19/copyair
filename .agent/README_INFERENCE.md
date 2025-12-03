@@ -57,7 +57,7 @@ Si prefieres trabajar con secuencias de imágenes:
 python scripts/predict.py --video input.mp4 --extract-frames
 
 # Inferencia sobre directorio de imágenes
-python scripts/predict.py --video data/frames --output data/results/
+python scripts/predict.py --video data/01_raw/input --output ../output_inference
 ```
 
 ## Resumen de Argumentos

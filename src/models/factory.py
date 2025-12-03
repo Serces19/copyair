@@ -31,7 +31,6 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     
     # Nuevos parámetros de configuración
     use_batchnorm = config.get('use_batchnorm', True)
-    use_dropout = config.get('use_dropout', False)
     dropout_p = config.get('dropout_p', 0.0)
     use_transpose = config.get('use_transpose', False)
     
@@ -72,9 +71,7 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
     elif arch == 'umamba':
         return UMamba(in_channels, out_channels, base_channels, activation)
     elif arch == 'nafnet':
-        # NAFNet usa dropout_p como drop_out_rate si use_dropout es True
-        drop_rate = dropout_p if use_dropout else 0.0
-        
+        drop_rate = dropout_p
         if size == 'small':
             return nafnet_small(in_channels, out_channels, drop_out_rate=drop_rate)
         elif size == 'base':
