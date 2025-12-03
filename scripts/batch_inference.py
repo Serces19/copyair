@@ -100,6 +100,10 @@ def discover_mlflow_runs(
                 metrics = run.data.metrics
                 tags = run.data.tags
                 
+                # Formatear timestamp para logging
+                from datetime import datetime
+                start_time_str = datetime.fromtimestamp(run.info.start_time / 1000.0).strftime('%Y-%m-%d %H:%M')
+                
                 run_info = {
                     'run_id': run_id,
                     'run_name': tags.get('mlflow.runName', f'run_{run_id[:8]}'),
@@ -114,7 +118,7 @@ def discover_mlflow_runs(
                     'artifacts': [art.path for art in artifacts]
                 }
                 runs_with_models.append(run_info)
-                logger.info(f"  ✓ Run: {run_info['run_name']} | Arch: {run_info['architecture']} | Epoch: {run_info['epoch']}")
+                logger.info(f"  ✓ Run: {run_id[:8]} | {start_time_str} | {run_info['architecture']} | Epoch: {run_info['epoch']}")
         except Exception as e:
             logger.warning(f"Error al procesar run {run_id}: {e}")
             continue
@@ -271,9 +275,14 @@ def create_output_folder_name(run_info: Dict[str, Any]) -> str:
     Returns:
         Nombre de carpeta
     """
-    run_name = run_info['run_name'].replace(' ', '_')
+    from datetime import datetime
+    
+    run_id_short = run_info['run_id'][:8]
     arch = run_info['architecture']
     epoch = run_info['epoch']
+    
+    # Formatear timestamp
+    start_time = datetime.fromtimestamp(run_info['start_time'] / 1000.0).strftime('%Y%m%d_%H%M')
     
     # Incluir loss si está disponible
     if run_info['train_loss'] is not None:
@@ -281,7 +290,8 @@ def create_output_folder_name(run_info: Dict[str, Any]) -> str:
     else:
         loss_str = ""
     
-    folder_name = f"{run_name}_{arch}_{epoch}ep{loss_str}"
+    # Formato: runid_fecha_arquitectura_epocas_loss
+    folder_name = f"{run_id_short}_{start_time}_{arch}_{epoch}ep{loss_str}"
     
     return folder_name
 

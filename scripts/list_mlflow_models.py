@@ -78,16 +78,35 @@ def list_models(mlflow_uri: str, experiment_name: str, filter_status: str = "FIN
                 metrics = run.data.metrics
                 tags = run.data.tags
                 
+                # Formatear timestamp
+                from datetime import datetime
+                start_time = datetime.fromtimestamp(run.info.start_time / 1000.0).strftime('%Y-%m-%d %H:%M')
+                
+                # Extraer métricas clave
+                train_loss = metrics.get('train/loss', float('nan'))
+                val_psnr = metrics.get('val/psnr', float('nan'))
+                val_lpips = metrics.get('val/crop_lpips', float('nan'))
+                
+                # Extraer parámetros clave
+                lr = params.get('training.learning_rate', 'N/A')
+                lambda_ssim = params.get('loss.lambda_ssim', 'N/A')
+                lambda_perceptual = params.get('loss.lambda_perceptual', 'N/A')
+                
                 runs_with_models.append({
-                    'Run Name': tags.get('mlflow.runName', f'run_{run_id[:8]}'),
+                    'Run ID': run_id[:8],
+                    'Start Time': start_time,
                     'Architecture': params.get('model.architecture', 'N/A'),
-                    'Epoch': params.get('training.epochs', 'N/A'),
-                    'Train Loss': f"{metrics.get('train/loss', float('nan')):.4f}" if 'train/loss' in metrics else 'N/A',
-                    'Val PSNR': f"{metrics.get('val/psnr', float('nan')):.2f}" if 'val/psnr' in metrics else 'N/A',
-                    'Val LPIPS': f"{metrics.get('val/crop_lpips', float('nan')):.4f}" if 'val/crop_lpips' in metrics else 'N/A',
-                    'Status': run.info.status,
-                    'Run ID': run_id[:12] + '...'
+                    'Epochs': params.get('training.epochs', 'N/A'),
+                    'LR': lr,
+                    'Train Loss': f"{train_loss:.4f}" if not float('nan') == train_loss else 'N/A',
+                    'Val PSNR': f"{val_psnr:.2f}" if not float('nan') == val_psnr else 'N/A',
+                    'Val LPIPS': f"{val_lpips:.4f}" if not float('nan') == val_lpips else 'N/A',
+                    'λ_SSIM': lambda_ssim,
+                    'λ_Perc': lambda_perceptual,
                 })
+                
+                # Log con más info
+                logger.info(f"  ✓ Run: {run_id[:8]} | {start_time} | {params.get('model.architecture', 'N/A')} | Loss: {train_loss:.4f if not float('nan') == train_loss else 'N/A'}")
         except Exception as e:
             print(f"⚠ Error al procesar run {run_id}: {e}")
             continue
