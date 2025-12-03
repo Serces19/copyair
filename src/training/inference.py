@@ -159,7 +159,17 @@ def predict_on_video(
     
     # Determinar tipo de salida: Video o Secuencia de Imágenes
     output_path_obj = Path(output_path)
-    is_sequence = output_path_obj.suffix == '' or output_path.endswith('/') or output_path.endswith('\\')
+    
+    # Es secuencia si:
+    # 1. Ya existe y es un directorio
+    # 2. No tiene extensión (y no existe aún)
+    # 3. Termina en / o \
+    is_sequence = (
+        (output_path_obj.exists() and output_path_obj.is_dir()) or
+        (not output_path_obj.exists() and output_path_obj.suffix == '') or
+        output_path.endswith('/') or 
+        output_path.endswith('\\')
+    )
     
     if is_sequence:
         # Modo Secuencia de Imágenes
@@ -312,7 +322,9 @@ def predict_on_video(
         if (frame_count) % 10 == 0:
             logger.info(f"Procesados {frame_count}/{total_frames} frames")
     
-    cap.release()
+    # Cleanup: solo liberar cap si existe (modo video)
+    if not is_directory:
+        cap.release()
     
     if not is_sequence:
         if use_ffmpeg:
