@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 SEARCH_SPACE = {
     'model': {
         'architecture': ['unet'],  # Puedes agregar: 'convexnet', 'mambairv2', etc.
-        'activation': ['gelu', 'silu', 'mish'],
+        'activation': ['mish', 'silu'],
         'base_channels': [32, 64],
         'dropout_p': [0.0, 0.02],
         
