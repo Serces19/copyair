@@ -23,3 +23,8 @@ dvc
 black
 flake8
 isort
+
+# Backend UI
+fastapi
+uvicorn
+python-multipart
