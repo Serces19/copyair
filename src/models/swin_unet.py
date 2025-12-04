@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import SwinV2Model, SwinV2Config
+from transformers import Swinv2Model, Swinv2Config
 
 class SwinDecoderBlock(nn.Module):
     def __init__(self, in_channels, out_channels, skip_channels=0):
@@ -53,10 +53,10 @@ class SwinV2UNet(nn.Module):
         print(f"Initializing SwinV2UNet with {model_id} (pretrained={pretrained})")
         
         if pretrained:
-            self.encoder = SwinV2Model.from_pretrained(model_id)
+            self.encoder = Swinv2Model.from_pretrained(model_id)
         else:
-            config = SwinV2Config.from_pretrained(model_id)
-            self.encoder = SwinV2Model(config)
+            config = Swinv2Config.from_pretrained(model_id)
+            self.encoder = Swinv2Model(config)
             
         # Ensure we output hidden states
         self.encoder.config.output_hidden_states = True
