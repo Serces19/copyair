@@ -95,7 +95,8 @@ def validate(
     model: nn.Module,
     val_loader: DataLoader,
     loss_fn,
-    device: torch.device
+    device: torch.device,
+    limit_batches: int = None
 ) -> Dict[str, float]:
     """
     Valida el modelo usando métricas robustas:
@@ -108,6 +109,7 @@ def validate(
         val_loader: DataLoader de validación
         loss_fn: Función de pérdida
         device: CPU o GPU
+        limit_batches: Límite de batches a procesar (para validación rápida o random sampling)
     
     Returns:
         Diccionario con métricas de validación
@@ -127,20 +129,22 @@ def validate(
     logger.info("Iniciando validación con métricas extendidas (PSNR, SSIM, Crop-LPIPS)...")
     
     with torch.no_grad():
-        for batch in val_loader:
+        for i, batch in enumerate(val_loader):
+            if limit_batches is not None and i >= limit_batches:
+                break
             input_img = batch['input'].to(device)
             target_img = batch['gt'].to(device)
             
             output = model(input_img)
             
-            # # 1. Pérdida Híbrida (la misma que train)
-            # losses_dict = loss_fn(output, target_img)
+            # 1. Pérdida Híbrida (la misma que train)
+            losses_dict = loss_fn(output, target_img)
             
-            # # Acumular métricas de loss
-            # for k, v in losses_dict.items():
-            #     if isinstance(v, torch.Tensor):
-            #         v = v.item()
-            #     accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
+            # Acumular métricas de loss
+            for k, v in losses_dict.items():
+                if isinstance(v, torch.Tensor):
+                    v = v.item()
+                accumulated_metrics[k] = accumulated_metrics.get(k, 0.0) + v
             
             # 2. Métricas de Sanidad (PSNR, SSIM)
             # Calculadas sobre la imagen completa

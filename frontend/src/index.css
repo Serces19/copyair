@@ -10,7 +10,7 @@
   --success: #10b981;
   --error: #ef4444;
   --warning: #f59e0b;
-  
+
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -23,12 +23,18 @@
   padding: 0;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
   overflow-x: hidden;
 }
 
@@ -36,13 +42,16 @@ body {
 ::-webkit-scrollbar {
   width: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--bg-primary);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
@@ -117,8 +126,15 @@ body {
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {

@@ -85,7 +85,9 @@ def setup_data(config: dict, device: torch.device):
             mask_config={'enabled': False}
         )
         
-        val_sampler = RandomSampler(full_val_dataset, replacement=True, num_samples=1)
+        # Usamos replacement=False para asegurar que no se repitan imágenes en una misma época de validación
+        # El límite de muestras se aplica en el loop de validación
+        val_sampler = RandomSampler(full_val_dataset, replacement=False)
         
         val_loader = DataLoader(
             full_val_dataset,
@@ -104,6 +106,7 @@ def setup_data(config: dict, device: torch.device):
         )
         
         logger.info(f"Dataset Total: {len(train_dataset)} imágenes")
+        logger.info(f"Validación: {val_samples} muestras aleatorias por época (promediadas)")
         
     else:
         base_dataset = PairedImageDataset(
@@ -290,8 +293,13 @@ def train(config: dict, device: torch.device):
             
             if epoch == 0 or epoch % val_interval == 0:
                 t_val_start = time.time()
+                # Determinar límite de batches
+                limit_batches = None
+                if config['training']['val_split'] == 0:
+                     limit_batches = config['training'].get('val_samples', 1)
+
                 # Ahora validate retorna también las imágenes del último batch
-                val_metrics, val_in, val_gt, val_out = validate(model, val_loader, loss_fn, device)
+                val_metrics, val_in, val_gt, val_out = validate(model, val_loader, loss_fn, device, limit_batches=limit_batches)
                 
                 # Guardar para visualización posterior
                 latest_val_input = val_in
