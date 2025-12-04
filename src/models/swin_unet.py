@@ -147,10 +147,27 @@ class SwinV2UNet(nn.Module):
         
         # Reshape features from (B, H*W, C) to (B, C, H, W)
         
-        def reshape_feat(feat):
+        batch_size, channels, H, W = input_image.shape
+        
+        def reshape_feat(feat, downsample_factor):
             B, L, C = feat.shape
-            size = int(L**0.5)
-            return feat.transpose(1, 2).view(B, C, size, size)
+            # Calculate expected H and W based on downsampling
+            h_feat = H // downsample_factor
+            w_feat = W // downsample_factor
+            
+            # Check if L matches h_feat * w_feat
+            if L != h_feat * w_feat:
+                # Fallback or error handling if Swin adds padding tokens?
+                # Usually Swin transformers might pad if window partition requires it.
+                # But let's try to view it as (B, h_feat, w_feat, C) first.
+                # If L is larger, it might be padded.
+                pass
+
+            # Swin output is (B, H*W, C). 
+            # If dimensions don't match exactly, we might need to be careful.
+            # But for now, let's trust the downsampling factors.
+            
+            return feat.transpose(1, 2).view(B, C, h_feat, w_feat)
 
         # Extract and reshape
         # Indices based on debug output:
@@ -159,10 +176,10 @@ class SwinV2UNet(nn.Module):
         # HS 2: H/16 (384)
         # HS 3: H/32 (768)
         
-        s1 = reshape_feat(hidden_states[0]) # H/4
-        s2 = reshape_feat(hidden_states[1]) # H/8
-        s3 = reshape_feat(hidden_states[2]) # H/16
-        s4 = reshape_feat(hidden_states[3]) # H/32
+        s1 = reshape_feat(hidden_states[0], 4)  # H/4
+        s2 = reshape_feat(hidden_states[1], 8)  # H/8
+        s3 = reshape_feat(hidden_states[2], 16) # H/16
+        s4 = reshape_feat(hidden_states[3], 32) # H/32
         
         # Decoder
         x = self.up1(s4, s3) # H/32 -> H/16
