@@ -139,18 +139,13 @@ class SwinV2UNet(nn.Module):
         
         hidden_states = outputs.hidden_states
         
-        # DEBUG: Print shapes
-        # for i, hs in enumerate(hidden_states):
-        #     print(f"Hidden State {i}: {hs.shape}")
-            
         # We use stages 1, 2, 3, 4 for skips and bottleneck
-        # Skip 1: hidden_states[1] (H/4)
-        # Skip 2: hidden_states[2] (H/8)
-        # Skip 3: hidden_states[3] (H/16)
-        # Bottleneck: hidden_states[4] (H/32)
+        # Skip 1: hidden_states[0] (H/4)
+        # Skip 2: hidden_states[1] (H/8)
+        # Skip 3: hidden_states[2] (H/16)
+        # Bottleneck: hidden_states[3] (H/32)
         
         # Reshape features from (B, H*W, C) to (B, C, H, W)
-        # Swin output is usually (B, L, C). We need to reshape.
         
         def reshape_feat(feat):
             B, L, C = feat.shape
@@ -158,14 +153,16 @@ class SwinV2UNet(nn.Module):
             return feat.transpose(1, 2).view(B, C, size, size)
 
         # Extract and reshape
-        # Note: hidden_states includes the initial embeddings. 
+        # Indices based on debug output:
+        # HS 0: H/4 (96)
+        # HS 1: H/8 (192)
+        # HS 2: H/16 (384)
+        # HS 3: H/32 (768)
         
-        s1 = reshape_feat(hidden_states[1]) # H/4
-        s2 = reshape_feat(hidden_states[2]) # H/8
-        s3 = reshape_feat(hidden_states[3]) # H/16
-        s4 = reshape_feat(hidden_states[4]) # H/32
-        
-        # print(f"S1: {s1.shape}, S2: {s2.shape}, S3: {s3.shape}, S4: {s4.shape}")
+        s1 = reshape_feat(hidden_states[0]) # H/4
+        s2 = reshape_feat(hidden_states[1]) # H/8
+        s3 = reshape_feat(hidden_states[2]) # H/16
+        s4 = reshape_feat(hidden_states[3]) # H/32
         
         # Decoder
         x = self.up1(s4, s3) # H/32 -> H/16
