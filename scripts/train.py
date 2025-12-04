@@ -72,7 +72,7 @@ def setup_data(config: dict, device: torch.device):
         # Validación: Resolución nativa (con límite para evitar OOM)
         # Validación: Resolución nativa (con límite para evitar OOM)
         native_val_transform = A.Compose([
-            A.LongestMaxSize(max_size=1920),
+            A.LongestMaxSize(max_size=1080),
             A.PadIfNeeded(min_height=None, min_width=None, pad_height_divisor=32, pad_width_divisor=32),
             A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255.0),
             ToTensorV2()

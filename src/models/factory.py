@@ -11,6 +11,7 @@ from .architectures import UMamba
 from .nafnet import nafnet_small, nafnet_base, nafnet_large, NAFNetHD
 from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base, ConvNeXtUNet
 from .mambair import mambair_tiny, mambair_base, mambair_large, MambaIRv2
+from .swin_unet import SwinV2UNet
 
 def get_model(config: Dict[str, Any]) -> nn.Module:
     """
@@ -103,6 +104,19 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
             return mambair_large(in_channels, out_channels)
         else:
             raise ValueError(f"MambaIR size no soportado: {size}. Opciones: tiny, base, large")
+    elif arch == 'swin_unet':
+        swin_type = config.get('swin_type', 'tiny')
+        pretrained = config.get('pretrained', True)
+        use_global_residual = config.get('use_global_residual', True)
+        # Note: img_size is not passed here usually, but Swin might need it if we want to be strict.
+        # However, our implementation defaults to 256 and handles resizing if needed.
+        return SwinV2UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            swin_type=swin_type,
+            pretrained=pretrained,
+            use_global_residual=use_global_residual
+        )
     else:
         raise ValueError(f"Arquitectura no soportada: {arch}")
 

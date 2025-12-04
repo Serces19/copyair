@@ -4,10 +4,12 @@ from .modernUnet import ModernUNet
 from .losses import HybridLoss
 from .nafnet import nafnet_small, nafnet_base, nafnet_large
 from .convnext import convnext_nano, convnext_tiny, convnext_small, convnext_base
+from .swin_unet import SwinV2UNet
 
 __all__ = [
     "UNet", 
     "HybridLoss",
     "nafnet_small", "nafnet_base", "nafnet_large",
-    "convnext_nano", "convnext_tiny", "convnext_small", "convnext_base"
+    "convnext_nano", "convnext_tiny", "convnext_small", "convnext_base",
+    "SwinV2UNet"
 ]

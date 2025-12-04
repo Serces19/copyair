@@ -15,6 +15,7 @@ model:
   # - nafnet: NAFNet HD (mejor para pocas imágenes)
   # - convnext: ConvNeXt U-Net (excelente para few-shot)
   # - mambair: MambaIRv2 (SOTA, global context, eficiente)
+  # - swin_unet: SwinV2 U-Net (Transformers)
   
   architecture: "unet"  # Cambiar a "nafnet", "convnext" o "mambair"
   
@@ -34,6 +35,11 @@ model:
   use_batchnorm: false    # Solo UNet
   dropout_p: 0.00         # Probabilidad de dropout
   use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
+
+  # Para SwinV2 UNet
+  swin_type: "tiny" # tiny, small, base
+  pretrained: true
+  use_global_residual: true
 
 # Parámetros de entrenamiento
 training:
@@ -71,7 +77,7 @@ training:
   
   # Checkpoint
   save_interval: 500
-  early_stopping_patience: 600
+  early_stopping_patience: 1000
 
 # Parámetros de pérdida
 loss:
