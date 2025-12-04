@@ -85,9 +85,9 @@ def setup_data(config: dict, device: torch.device):
             mask_config={'enabled': False}
         )
         
-        # Usamos replacement=False para asegurar que no se repitan imágenes en una misma época de validación
-        # El límite de muestras se aplica en el loop de validación
-        val_sampler = RandomSampler(full_val_dataset, replacement=False)
+        # Validación: Muestreo aleatorio limitado para velocidad
+        val_samples = config['training'].get('val_samples', 1)
+        val_sampler = RandomSampler(full_val_dataset, replacement=True, num_samples=val_samples)
         
         val_loader = DataLoader(
             full_val_dataset,
