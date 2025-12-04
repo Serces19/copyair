@@ -139,6 +139,10 @@ class SwinV2UNet(nn.Module):
         
         hidden_states = outputs.hidden_states
         
+        # DEBUG: Print shapes
+        # for i, hs in enumerate(hidden_states):
+        #     print(f"Hidden State {i}: {hs.shape}")
+            
         # We use stages 1, 2, 3, 4 for skips and bottleneck
         # Skip 1: hidden_states[1] (H/4)
         # Skip 2: hidden_states[2] (H/8)
@@ -148,40 +152,20 @@ class SwinV2UNet(nn.Module):
         # Reshape features from (B, H*W, C) to (B, C, H, W)
         # Swin output is usually (B, L, C). We need to reshape.
         
-        def reshape_feat(feat, H, W):
+        def reshape_feat(feat):
             B, L, C = feat.shape
-            # Assuming square image for simplicity or calculating H, W based on L
-            # But L = (H/32 * W/32) etc.
-            # We can infer H, W from the feature map size if we know the downsampling factor.
-            # Or we can just use the square root if we assume square inputs.
-            # Let's assume the feature map is square for now or derive from L.
             size = int(L**0.5)
             return feat.transpose(1, 2).view(B, C, size, size)
 
         # Extract and reshape
         # Note: hidden_states includes the initial embeddings. 
-        # Let's verify indices.
-        # hidden_states tuple length is usually len(depths) + 1 (embeddings) + 1 (final)?
-        # Let's check documentation or assume standard:
-        # index 0: embeddings
-        # index 1: stage 1
-        # ...
         
-        s1 = hidden_states[1] # H/4
-        s2 = hidden_states[2] # H/8
-        s3 = hidden_states[3] # H/16
-        s4 = hidden_states[4] # H/32
+        s1 = reshape_feat(hidden_states[1]) # H/4
+        s2 = reshape_feat(hidden_states[2]) # H/8
+        s3 = reshape_feat(hidden_states[3]) # H/16
+        s4 = reshape_feat(hidden_states[4]) # H/32
         
-        # Reshape
-        # We need to know the spatial dimensions.
-        # SwinV2Model output might already be reshaped? No, usually (B, L, C).
-        # Let's use the shape of x to determine target sizes?
-        # Or just sqrt(L).
-        
-        s1 = reshape_feat(s1, 0, 0)
-        s2 = reshape_feat(s2, 0, 0)
-        s3 = reshape_feat(s3, 0, 0)
-        s4 = reshape_feat(s4, 0, 0)
+        # print(f"S1: {s1.shape}, S2: {s2.shape}, S3: {s3.shape}, S4: {s4.shape}")
         
         # Decoder
         x = self.up1(s4, s3) # H/32 -> H/16
