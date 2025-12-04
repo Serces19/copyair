@@ -15,6 +15,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 app = FastAPI(title="CopyAir Frontend API")
 
+@app.get("/")
+async def root():
+    return {"status": "online", "message": "CopyAir Backend is running"}
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +65,24 @@ def capture_output(script_name, process):
     t_out.join()
     t_err.join()
     process.wait()
+
+@app.get("/api/config")
+async def get_config():
+    try:
+        with open(PARAMS_PATH, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/config")
+async def update_config(update: ConfigUpdate):
+    try:
+        with open(PARAMS_PATH, 'w') as f:
+            yaml.dump(update.config, f, default_flow_style=False)
+        return {"status": "success", "message": "Configuration updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/run/{script_name}")
 async def run_script(script_name: str, run_req: ScriptRun):
