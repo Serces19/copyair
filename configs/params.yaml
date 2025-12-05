@@ -87,6 +87,7 @@ loss:
   lambda_laplacian: 0.0
   lambda_ffl: 0.00      # Focal Frequency Loss (Detalle fino)
   lambda_dreamsim: 0.00 # DreamSim Loss (Coherencia semántica)
+  lambda_dino: 0.00     # DINO Loss (Perceptual profunda)
   lambda_charbonnier: 0.0 # Charbonnier Loss (Robust L1) - Recomendado: 1.0 (si reemplaza L1)
   lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
   lambda_multiscale: 0.3  # [NEW] Supervisión Estructural (Pyramid Loss)

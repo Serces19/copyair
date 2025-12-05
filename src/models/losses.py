@@ -353,6 +353,67 @@ class GradientLossPro(nn.Module):
 
 
 
+class DinoLoss(nn.Module):
+    """
+    Pérdida perceptual usando DINOv2 (o DINOv3 si disponible).
+    Calcula la similitud entre características profundas.
+    """
+    def __init__(self, model_name='facebook/dinov3-base', device='cuda'):
+        super().__init__()
+        try:
+            from transformers import AutoModel
+        except ImportError:
+            raise ImportError("La librería 'transformers' no está instalada. Instálala con 'pip install transformers'")
+            
+        print(f"Cargando modelo DINO: {model_name}...")
+        try:
+            self.model = AutoModel.from_pretrained(model_name).to(device).eval()
+        except Exception as e:
+            print(f"Error cargando {model_name}, intentando fallback a 'facebook/dinov2-base'...")
+            self.model = AutoModel.from_pretrained('facebook/dinov2-base').to(device).eval()
+
+        for param in self.model.parameters():
+            param.requires_grad = False
+            
+        # ImageNet normalization
+        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device))
+        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device))
+
+    def forward(self, pred, target):
+        # pred, target in [-1, 1]
+        
+        # 1. Denormalize to [0, 1]
+        pred_01 = (pred + 1) * 0.5
+        target_01 = (target + 1) * 0.5
+        
+        # 2. Normalize for DINO
+        pred_norm = (pred_01 - self.mean) / self.std
+        target_norm = (target_01 - self.mean) / self.std
+        
+        # 3. Resize to 224x224 (Standard for ViT/DINO)
+        if pred_norm.shape[-1] != 224:
+             pred_input = F.interpolate(pred_norm, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+             target_input = F.interpolate(target_norm, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
+        else:
+             pred_input = pred_norm
+             target_input = target_norm
+             
+        # 4. Forward
+        # Target features (no grad)
+        with torch.no_grad():
+            target_out = self.model(target_input, output_hidden_states=True)
+            # Usamos last_hidden_state para capturar estructura espacial (B, L, D)
+            target_feats = target_out.last_hidden_state 
+            
+        # Pred features (grad enabled)
+        pred_out = self.model(pred_input, output_hidden_states=True)
+        pred_feats = pred_out.last_hidden_state
+        
+        # Loss: L1 entre features
+        loss = F.l1_loss(pred_feats, target_feats)
+        return loss
+
+
 class MultiScaleLoss(nn.Module):
     """
     Calcula la pérdida en múltiples escalas (Pirámide).
@@ -394,6 +455,7 @@ class HybridLoss(nn.Module):
         lambda_laplacian: float = 0.05,
         lambda_ffl: float = 0.0,
         lambda_dreamsim: float = 0.0,
+        lambda_dino: float = 0.0,
         lambda_charbonnier: float = 0.0,
         lambda_sobel: float = 0.0,
         lambda_multiscale: float = 0.0,
@@ -406,6 +468,7 @@ class HybridLoss(nn.Module):
         self.lambda_laplacian = lambda_laplacian
         self.lambda_ffl = lambda_ffl
         self.lambda_dreamsim = lambda_dreamsim
+        self.lambda_dino = lambda_dino
         self.lambda_charbonnier = lambda_charbonnier
         self.lambda_sobel = lambda_sobel
         
@@ -441,6 +504,13 @@ class HybridLoss(nn.Module):
                 self.lambda_dreamsim = 0
         else:
             self.dreamsim_loss = None
+
+        # Inicializar DINO si se usa
+        if self.lambda_dino > 0:
+            # Intentamos usar dinov2-base como default robusto
+            self.dino_loss = DinoLoss(model_name='facebook/dinov2-base', device=device)
+        else:
+            self.dino_loss = None
 
         self.lambda_multiscale = lambda_multiscale
         if self.lambda_multiscale > 0:
@@ -505,6 +575,11 @@ class HybridLoss(nn.Module):
             dream = self.dreamsim_loss(pred, target)
             total_loss += self.lambda_dreamsim * dream
             metrics['dreamsim'] = dream
+
+        if self.lambda_dino > 0 and self.dino_loss is not None:
+            dino = self.dino_loss(pred, target)
+            total_loss += self.lambda_dino * dino
+            metrics['dino'] = dino
             
         if self.lambda_multiscale > 0 and self.multiscale_loss is not None:
             ms_loss = self.multiscale_loss(pred, target)
