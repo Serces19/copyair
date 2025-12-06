@@ -189,6 +189,7 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
         lambda_ffl=config['loss'].get('lambda_ffl', 0.0),
         lambda_dreamsim=config['loss'].get('lambda_dreamsim', 0.0),
         lambda_charbonnier=config['loss'].get('lambda_charbonnier', 0.0),
+        lambda_dino=config['loss'].get('lambda_dino', 0.0),
         lambda_sobel=config['loss'].get('lambda_sobel', 0.0),
         device=str(device)
     )

@@ -352,64 +352,142 @@ class GradientLossPro(nn.Module):
         return loss
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from transformers import AutoModel, AutoImageProcessor
 
 class DinoLoss(nn.Module):
     """
-    Pérdida perceptual usando DINOv2 (o DINOv3 si disponible).
-    Calcula la similitud entre características profundas.
+    Robust DINOv3/DINOv2 perceptual loss for images.
+    - Usa transformers AutoModel + AutoImageProcessor para preprocesado correcto.
+    - Intentará cargar una lista de modelos DINOv3 (preferencia) y si no está disponible,
+      caerá a DINOv2 pero lo informará.
+    - Opciones para reducir VRAM: use_fp16, pooling ('tokens'|'mean'|'cls'), input_size.
     """
-    def __init__(self, model_name='facebook/dinov3-base', device='cuda'):
-        super().__init__()
-        try:
-            from transformers import AutoModel
-        except ImportError:
-            raise ImportError("La librería 'transformers' no está instalada. Instálala con 'pip install transformers'")
-            
-        print(f"Cargando modelo DINO: {model_name}...")
-        try:
-            self.model = AutoModel.from_pretrained(model_name).to(device).eval()
-        except Exception as e:
-            print(f"Error cargando {model_name}, intentando fallback a 'facebook/dinov2-base'...")
-            self.model = AutoModel.from_pretrained('facebook/dinov2-base').to(device).eval()
+    CANDIDATES = [
+        # buenos candidatos DINOv3 (elige uno de estos según VRAM/quality)
+        "facebook/dinov3-vits16-pretrain-lvd1689m",   # pequeño -> best fit 16GB
+        "facebook/dinov3-vitb16-pretrain-lvd1689m",  # mediano -> mejor detalle
+        "facebook/dinov3-vitl16-pretrain-lvd1689m",  # grande -> alto detalle (más VRAM)
+        # fallback DINOv2 (si DINOv3 no está disponible)
+        "facebook/dinov2-base",
+    ]
 
-        for param in self.model.parameters():
-            param.requires_grad = False
-            
-        # ImageNet normalization
-        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device))
-        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device))
+    def __init__(self,
+                 model_name=None,
+                 device='cuda',
+                 input_size=224,
+                 pooling='tokens',    # 'tokens' (full token map), 'mean' (avg pool tokens), 'cls'
+                 use_fp16=True):
+        super().__init__()
+        self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
+        self.input_size = input_size
+        assert pooling in ('tokens', 'mean', 'cls'), "pooling must be 'tokens','mean' or 'cls'"
+        self.pooling = pooling
+        self.use_fp16 = use_fp16
+
+        # determine model name to try
+        candidates = [model_name] + [m for m in self.CANDIDATES if m != model_name] if model_name else self.CANDIDATES
+
+        load_err = None
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                print(f"[DinoLoss] intentando cargar: {candidate}")
+                # Image processor handles resize / normalization
+                self.processor = AutoImageProcessor.from_pretrained(candidate)
+                self.model = AutoModel.from_pretrained(candidate)
+                self.model_name = candidate
+                break
+            except Exception as e:
+                load_err = e
+                print(f"[DinoLoss] no disponible: {candidate} -> {e}")
+                continue
+        else:
+            raise RuntimeError(f"No se pudo cargar ningún modelo DINO. Último error: {load_err}")
+
+        # Move model to device and optionally to half precision
+        self.model.to(self.device)
+        if self.use_fp16:
+            # small models often work fine in fp16; keep float32 for CPU fallback
+            try:
+                self.model.half()
+                self._dtype = torch.float16
+            except Exception:
+                self._dtype = torch.float32
+        else:
+            self._dtype = torch.float32
+
+        # Freeze model
+        for p in self.model.parameters():
+            p.requires_grad = False
+
+        print(f"[DinoLoss] modelo cargado: {self.model_name} (dtype={self._dtype})")
+
+    def _preprocess(self, x):
+        """
+        x: tensor in range [-1,1], shape (B,3,H,W)
+        returns: pixel_values tensor according to model processor expectations, on device
+        """
+        # to [0,1]
+        x = (x + 1.0) * 0.5
+        # move to cpu for processor (transformers processors expect numpy/CPU tensors)
+        # but AutoImageProcessor supports tensors; we'll convert but keep device handling simple
+        # processor will perform: resize, normalize, convert to float32
+        # ensure shape (B, H, W, C) or (B, C, H, W) depending on processor; most accept tensors
+        kwargs = {"images": x, "return_tensors": "pt"}
+        processed = self.processor(**kwargs)
+        pixel_values = processed["pixel_values"]  # (B, C, H_model, W_model)
+        # cast dtype consistent with model and move to device
+        pixel_values = pixel_values.to(dtype=self._dtype, device=self.device)
+        return pixel_values
+
+    def _pool_feats(self, feats):
+        """
+        feats: last_hidden_state -> (B, seq_len, D)
+        returns pooled features depending on pooling mode.
+        - tokens: return full token map (B, seq_len, D)
+        - mean: (B, D) mean pool over tokens
+        - cls: (B, D) first token
+        """
+        if self.pooling == 'tokens':
+            return feats  # keep full token map
+        elif self.pooling == 'mean':
+            return feats.mean(dim=1)  # (B, D)
+        else:  # cls
+            return feats[:, 0, :]  # (B, D)
 
     def forward(self, pred, target):
-        # pred, target in [-1, 1]
-        
-        # 1. Denormalize to [0, 1]
-        pred_01 = (pred + 1) * 0.5
-        target_01 = (target + 1) * 0.5
-        
-        # 2. Normalize for DINO
-        pred_norm = (pred_01 - self.mean) / self.std
-        target_norm = (target_01 - self.mean) / self.std
-        
-        # 3. Resize to 224x224 (Standard for ViT/DINO)
-        if pred_norm.shape[-1] != 224:
-             pred_input = F.interpolate(pred_norm, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
-             target_input = F.interpolate(target_norm, size=(224, 224), mode='bilinear', align_corners=False, antialias=True)
-        else:
-             pred_input = pred_norm
-             target_input = target_norm
-             
-        # 4. Forward
-        # Target features (no grad)
+        """
+        pred, target: tensors in [-1,1], shape (B,3,H,W)
+        returns scalar loss
+        """
+        # preprocess
+        pred_in = self._preprocess(pred)
+        target_in = self._preprocess(target)
+
+        # forward target (no grad)
         with torch.no_grad():
-            target_out = self.model(target_input, output_hidden_states=True)
-            # Usamos last_hidden_state para capturar estructura espacial (B, L, D)
-            target_feats = target_out.last_hidden_state 
-            
-        # Pred features (grad enabled)
-        pred_out = self.model(pred_input, output_hidden_states=True)
-        pred_feats = pred_out.last_hidden_state
-        
-        # Loss: L1 entre features
+            out_t = self.model(pixel_values=target_in, output_hidden_states=False)
+            # last_hidden_state typical shape: (B, seq_len, D)
+            target_feats = out_t.last_hidden_state.to(self._dtype)
+            target_feats = self._pool_feats(target_feats).detach()
+
+        # forward pred (need grad)
+        out_p = self.model(pixel_values=pred_in, output_hidden_states=False)
+        pred_feats = out_p.last_hidden_state.to(self._dtype)
+        pred_feats = self._pool_feats(pred_feats)
+
+        # normalize feature vectors along channel dim
+        # if tokens -> shape (B, seq_len, D), normalize on D
+        pred_feats = F.normalize(pred_feats, dim=-1)
+        target_feats = F.normalize(target_feats, dim=-1)
+
+        # compute L1 loss - shapes must match
+        # if pooling == 'tokens' ensure both have same seq_len (processor guarantees same size)
         loss = F.l1_loss(pred_feats, target_feats)
         return loss
 
@@ -508,7 +586,17 @@ class HybridLoss(nn.Module):
         # Inicializar DINO si se usa
         if self.lambda_dino > 0:
             # Intentamos usar dinov2-base como default robusto
-            self.dino_loss = DinoLoss(model_name='facebook/dinov2-base', device=device)
+            #device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+            # Opción recomendada para 16GB VRAM
+            self.dino_loss = DinoLoss(
+                model_name='facebook/dinov3-vits16-pretrain-lvd1689m',
+                device=device,
+                input_size=320,      # más barato en VRAM; sube a 320/392 si necesitas más detalle
+                pooling='tokens',    # 'tokens' para detalle espacial; usa 'mean' si falta VRAM
+                use_fp16=True        # reduce ~2x VRAM si tu GPU soporta fp16
+            )
+
         else:
             self.dino_loss = None
 
@@ -587,5 +675,9 @@ class HybridLoss(nn.Module):
             metrics['multiscale'] = ms_loss
             
         metrics['total'] = total_loss
+        print("total_loss:", type(total_loss), 
+        "requires_grad:", total_loss.requires_grad, 
+        "grad_fn:", total_loss.grad_fn)
+
             
         return metrics
