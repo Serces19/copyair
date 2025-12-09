@@ -487,12 +487,12 @@ class UNet(nn.Module):
         # ---------------------------------------------------------
         x_up3 = self.up3(x4)
         if x_up3.shape != x3.shape: x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
-        
-        # [ESTRATEGIA A: CORTAR CABLE]
-        skip3 = skip3 * 0.0
 
         # Copia de la skip connection original
         skip3 = x3 
+        
+        # [ESTRATEGIA A: CORTAR CABLE]
+        skip3 = skip3 * 0.0
 
         # [ESTRATEGIA B: SMART FILTER] (Descomentar)
         # skip3 = self.skip_conv3(skip3)

@@ -81,3 +81,10 @@ class MLflowLogger:
                 else:
                     items[new_key] = v
         return items
+
+
+    def get_run_id(self) -> Optional[str]:
+        if not self.enabled:
+            return None
+        run = mlflow.active_run()
+        return run.info.run_id if run else None

@@ -15,6 +15,9 @@ import os
 import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import mlflow
+
+
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -422,8 +425,7 @@ def train(config: dict, device: torch.device):
                 patience_counter = 0
 
                 # Obtener el run_id actual
-                run = mlflow.active_run()
-                run_id = run.info.run_id
+                run_id = mlflow_logger.get_run_id()
 
                 # Crear carpeta única para este run
                 run_dir = Path(config['data']['models_dir']) / run_id

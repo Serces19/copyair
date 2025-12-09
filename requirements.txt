@@ -13,6 +13,7 @@ matplotlib
 scikit-learn
 timm
 dreamsim
+transformers
 
 # MLOps (opcional)
 mlflow
