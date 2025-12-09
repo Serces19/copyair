@@ -675,9 +675,5 @@ class HybridLoss(nn.Module):
             metrics['multiscale'] = ms_loss
             
         metrics['total'] = total_loss
-        print("total_loss:", type(total_loss), 
-        "requires_grad:", total_loss.requires_grad, 
-        "grad_fn:", total_loss.grad_fn)
-
             
         return metrics

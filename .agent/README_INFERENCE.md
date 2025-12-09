@@ -58,6 +58,7 @@ python scripts/predict.py --video input.mp4 --extract-frames
 
 # Inferencia sobre directorio de imágenes
 python scripts/predict.py --video data/01_raw/input --output ../output_inference
+python scripts/predict.py --video data/01_raw/input --output ./output_inference --model models/best_model_unet.pth --native-resolution
 ```
 
 ## Resumen de Argumentos

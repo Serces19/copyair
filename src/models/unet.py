@@ -317,6 +317,41 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+
+class AttentionGate(nn.Module):
+    def __init__(self, F_g, F_l, F_int):
+        super(AttentionGate, self).__init__()
+        # F_g: Canales de la señal de compuerta (viene del decoder/up)
+        # F_l: Canales de la señal a filtrar (viene del encoder/skip)
+        # F_int: Canales intermedios (generalmente F_l / 2)
+        
+        self.W_g = nn.Sequential(
+            nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+        
+        self.W_x = nn.Sequential(
+            nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(F_int)
+        )
+
+        self.psi = nn.Sequential(
+            nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True),
+            nn.BatchNorm2d(1),
+            nn.Sigmoid()
+        )
+        
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1 + x1)
+        psi = self.psi(psi)
+        return x * psi
+
+
 class SimpleConvBlock(nn.Module):
     """Conv -> Norm -> Activation -> Conv -> Norm -> Activation"""
     def __init__(self, in_ch, out_ch, activation='relu', norm_type='batch', groups=32, dropout=0.0):
@@ -378,6 +413,8 @@ class SimpleConvBlock(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
+
+
 class UNet(nn.Module):
     def __init__(self, 
                  in_channels=3, 
@@ -387,7 +424,7 @@ class UNet(nn.Module):
                  norm_type='group',
                  groups=16,
                  dropout=0.0,
-                 use_attention=False,  # Nuevo parámetro opcional
+                 use_attention=False,
                  output_activation='tanh'):
         super().__init__()
         
@@ -395,88 +432,131 @@ class UNet(nn.Module):
         
         # --- ENCODER ---
         self.inc = SimpleConvBlock(in_channels, base_channels, activation, norm_type, groups, dropout)
-        self.down1 = nn.Sequential(
-            nn.MaxPool2d(2), 
-            SimpleConvBlock(base_channels, base_channels*2, activation, norm_type, groups, dropout)
-        )
-        self.down2 = nn.Sequential(
-            nn.MaxPool2d(2), 
-            SimpleConvBlock(base_channels*2, base_channels*4, activation, norm_type, groups, dropout)
-        )
-        self.down3 = nn.Sequential(
-            nn.MaxPool2d(2), 
-            SimpleConvBlock(base_channels*4, base_channels*8, activation, norm_type, groups, dropout)
-        )
+        self.down1 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels, base_channels*2, activation, norm_type, groups, dropout))
+        self.down2 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*2, base_channels*4, activation, norm_type, groups, dropout))
+        self.down3 = nn.Sequential(nn.MaxPool2d(2), SimpleConvBlock(base_channels*4, base_channels*8, activation, norm_type, groups, dropout))
 
-        # --- ATTENTION (opcional) ---
-        if use_attention:
-            self.attention = nn.MultiheadAttention(base_channels*8, 8)  # Simple attention
+        # --- ESTRATEGIA B: SMART FILTER (1x1 CONVS) ---
+        # Descomenta esto para usar filtros 1x1 en las conexiones
+        # Nota: Mantenemos los canales iguales para no romper las dimensiones del decoder, 
+        # pero añadimos no-linealidad para "romper" la copia directa.
+        
+        # self.skip_conv3 = nn.Sequential(nn.Conv2d(base_channels*4, base_channels*4, kernel_size=1), nn.Mish())
+        # self.skip_conv2 = nn.Sequential(nn.Conv2d(base_channels*2, base_channels*2, kernel_size=1), nn.Mish())
+        # self.skip_conv1 = nn.Sequential(nn.Conv2d(base_channels, base_channels, kernel_size=1), nn.Mish())
+
+
+        # --- ESTRATEGIA C: ATTENTION GATES ---
+        # Descomenta esto para usar Attention Gates reales
+        # F_g (gate) = canales del upsample, F_l (local) = canales del skip
+        
+        # self.att_gate3 = AttentionGate(F_g=base_channels*8, F_l=base_channels*4, F_int=base_channels*2)
+        # self.att_gate2 = AttentionGate(F_g=base_channels*4, F_l=base_channels*2, F_int=base_channels)
+        # self.att_gate1 = AttentionGate(F_g=base_channels*2, F_l=base_channels, F_int=base_channels//2)
+
 
         # --- DECODER ---
-        # Up3
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv3 = SimpleConvBlock(base_channels*8 + base_channels*4, base_channels*4, activation, norm_type, groups, dropout)
         
-        # Up2
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv2 = SimpleConvBlock(base_channels*4 + base_channels*2, base_channels*2, activation, norm_type, groups, dropout)
         
-        # Up1
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.conv1 = SimpleConvBlock(base_channels*2 + base_channels, base_channels, activation, norm_type, groups, dropout)
 
-        # --- OUTPUT ---
         self.outc = nn.Conv2d(base_channels, out_channels, kernel_size=1)
-        
-        # Función de activación de salida
         self.output_activation = self._get_output_activation(output_activation)
 
+    # ... (Tus métodos auxiliares _get_output_activation, etc. van aquí igual que antes) ...
     def _get_output_activation(self, activation):
-        activations = {
-            'tanh': nn.Tanh(),
-            'sigmoid': nn.Sigmoid(),
-            'relu': nn.ReLU(inplace=True),
-            'none': nn.Identity(),
-            'leakyrelu': nn.LeakyReLU(0.1, inplace=True)
-        }
+        activations = {'tanh': nn.Tanh(), 'sigmoid': nn.Sigmoid(), 'relu': nn.ReLU(inplace=True), 'none': nn.Identity(), 'leakyrelu': nn.LeakyReLU(0.1, inplace=True)}
         return activations.get(activation.lower(), nn.Tanh())
 
     def forward(self, x):
         # Encoder
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)  # Bottleneck
+        x1 = self.inc(x)         # Skip connection 1 (base_channels)
+        x2 = self.down1(x1)      # Skip connection 2 (base_channels*2)
+        x3 = self.down2(x2)      # Skip connection 3 (base_channels*4)
+        x4 = self.down3(x3)      # Bottleneck
 
-        # Attention (opcional)
-        if self.use_attention:
-            # Reshape para attention: (B, C, H, W) -> (H*W, B, C)
-            batch_size, channels, height, width = x4.shape
-            x4_flat = x4.view(batch_size, channels, -1).permute(2, 0, 1)
-            x4_att, _ = self.attention(x4_flat, x4_flat, x4_flat)
-            x4 = x4_att.permute(1, 2, 0).view(batch_size, channels, height, width)
+        # --- AQUÍ ESTÁN LAS MODIFICACIONES ---
 
-        # Decoder
-        # Bloque 3
+        # ---------------------------------------------------------
+        # BLOQUE 3 (Profundo)
+        # ---------------------------------------------------------
         x_up3 = self.up3(x4)
-        if x_up3.shape != x3.shape:
-            x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
-        x = torch.cat([x_up3, x3], dim=1)
+        if x_up3.shape != x3.shape: x_up3 = F.interpolate(x_up3, size=x3.shape[2:], mode='bilinear', align_corners=True)
+        
+        # [ESTRATEGIA A: CORTAR CABLE]
+        skip3 = skip3 * 0.0
+
+        # Copia de la skip connection original
+        skip3 = x3 
+
+        # [ESTRATEGIA B: SMART FILTER] (Descomentar)
+        # skip3 = self.skip_conv3(skip3)
+
+        # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
+        # skip3 = self.att_gate3(g=x_up3, x=skip3)
+
+        # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
+        # if self.training and torch.rand(1).item() < 0.5: # 50% probabilidad de cortar conexión
+        #     skip3 = skip3 * 0.0
+
+        # Concatenación (Esta es la skip connection actual)
+        x = torch.cat([x_up3, skip3], dim=1) 
         x = self.conv3(x)
 
-        # Bloque 2
+        # ---------------------------------------------------------
+        # BLOQUE 2 (Medio)
+        # ---------------------------------------------------------
         x_up2 = self.up2(x)
-        if x_up2.shape != x2.shape:
-            x_up2 = F.interpolate(x_up2, size=x2.shape[2:], mode='bilinear', align_corners=True)
-        x = torch.cat([x_up2, x2], dim=1)
+        if x_up2.shape != x2.shape: x_up2 = F.interpolate(x_up2, size=x2.shape[2:], mode='bilinear', align_corners=True)
+        
+        skip2 = x2
+
+        # [ESTRATEGIA A: CORTAR CABLE]
+        #skip2 = skip2 * 0.0
+
+        # [ESTRATEGIA B: SMART FILTER] (Descomentar)
+        # skip2 = self.skip_conv2(skip2)
+
+        # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
+        # skip2 = self.att_gate2(g=x_up2, x=skip2)
+
+        # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
+        # if self.training and torch.rand(1).item() < 0.5:
+        #     skip2 = skip2 * 0.0
+
+        x = torch.cat([x_up2, skip2], dim=1)
         x = self.conv2(x)
 
-        # Bloque 1
+        # ---------------------------------------------------------
+        # BLOQUE 1 (Superficial - DETALLES FINOS)
+        # ---------------------------------------------------------
         x_up1 = self.up1(x)
-        if x_up1.shape != x1.shape:
-            x_up1 = F.interpolate(x_up1, size=x1.shape[2:], mode='bilinear', align_corners=True)
-        x = torch.cat([x_up1, x1], dim=1)
+        if x_up1.shape != x1.shape: x_up1 = F.interpolate(x_up1, size=x1.shape[2:], mode='bilinear', align_corners=True)
+        
+        skip1 = x1
+
+
+        # [ESTRATEGIA A: CORTAR CABLE] 
+        # Forzamos a que la skip connection sea negro absoluto (ceros). 
+        # El modelo se ve obligado a inventar los detalles.
+        # skip1 = skip1 * 0.0
+
+        # [ESTRATEGIA B: SMART FILTER] (Descomentar)
+        # skip1 = self.skip_conv1(skip1)
+
+        # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
+        # skip1 = self.att_gate1(g=x_up1, x=skip1)
+
+        # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
+        # if self.training and torch.rand(1).item() < 0.5:
+        #     skip1 = skip1 * 0.0
+
+        x = torch.cat([x_up1, skip1], dim=1)
         x = self.conv1(x)
 
-        # Salida
         return self.output_activation(self.outc(x))

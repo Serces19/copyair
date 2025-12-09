@@ -317,6 +317,46 @@ def train(config: dict, device: torch.device):
                 logger.info(f"[Validación] PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS: {val_metrics['val_lpips_sliding']:.4f}")
 
             # --- Visualización ---
+            # if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
+            #     try:
+            #         viz_start = time.time()
+                    
+            #         # Usar datos cacheados si existen, si no, intentar obtener del loader (fallback)
+            #         if latest_val_input is not None:
+            #             input_vis_t = latest_val_input[0]
+            #             gt_vis_t = latest_val_target[0]
+            #             pred_vis_t = latest_val_pred[0]
+            #         else:
+            #             # Fallback si viz_interval no coincide con val_interval y no hay cache
+            #             logger.info("Generando visualización (sin cache de validación)...")
+            #             batch = next(iter(val_loader))
+            #             input_vis_t = batch['input'][0].to(device)
+            #             gt_vis_t = batch['gt'][0].to(device)
+            #             model.eval()
+            #             with torch.no_grad():
+            #                 pred_vis_t = model(input_vis_t.unsqueeze(0)).squeeze(0)
+
+            #         # Procesar imágenes
+            #         input_vis = tensor_to_numpy(input_vis_t)
+            #         gt_vis = tensor_to_numpy(gt_vis_t)
+            #         pred_vis = tensor_to_numpy(pred_vis_t)
+                    
+            #         comparison = np.concatenate([input_vis, gt_vis, pred_vis], axis=1)
+            #         comparison = (comparison * 255).astype(np.uint8)
+                    
+            #         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+            #             Image.fromarray(comparison).save(f.name)
+            #             mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
+            #             os.unlink(f.name)
+                    
+            #         mlflow_logger.log_metric('time/viz_duration', time.time() - viz_start, step=epoch)
+            #         logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
+                    
+            #     except Exception as e:
+            #         logger.warning(f"No se pudo guardar imagen de validación: {e}")
+            
+
+            # --- Visualización ---
             if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
                 try:
                     viz_start = time.time()
@@ -327,7 +367,6 @@ def train(config: dict, device: torch.device):
                         gt_vis_t = latest_val_target[0]
                         pred_vis_t = latest_val_pred[0]
                     else:
-                        # Fallback si viz_interval no coincide con val_interval y no hay cache
                         logger.info("Generando visualización (sin cache de validación)...")
                         batch = next(iter(val_loader))
                         input_vis_t = batch['input'][0].to(device)
@@ -343,15 +382,19 @@ def train(config: dict, device: torch.device):
                     
                     comparison = np.concatenate([input_vis, gt_vis, pred_vis], axis=1)
                     comparison = (comparison * 255).astype(np.uint8)
-                    
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-                        Image.fromarray(comparison).save(f.name)
-                        mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
-                        os.unlink(f.name)
-                    
+
+                    # Guardar como artifact genérico (opcional, para tenerlo en Artifacts)
+                    # with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                    #     Image.fromarray(comparison).save(f.name)
+                    #     mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
+                    #     os.unlink(f.name)
+
+                    # Loggear también como imagen reconocida por MLflow (para el grid en Model Metrics)
+                    mlflow.log_image(comparison, f"epoch_{epoch+1}.png")
+
                     mlflow_logger.log_metric('time/viz_duration', time.time() - viz_start, step=epoch)
-                    logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
-                    
+                    logger.info(f"✓ Imagen de validación guardada y loggeada (época {epoch+1})")
+
                 except Exception as e:
                     logger.warning(f"No se pudo guardar imagen de validación: {e}")
 
@@ -378,8 +421,17 @@ def train(config: dict, device: torch.device):
                 best_train_loss = train_metrics['loss']
                 patience_counter = 0
 
+                # Obtener el run_id actual
+                run = mlflow.active_run()
+                run_id = run.info.run_id
+
+                # Crear carpeta única para este run
+                run_dir = Path(config['data']['models_dir']) / run_id
+                run_dir.mkdir(parents=True, exist_ok=True)
+
+                # Guardar best model dentro de esa carpeta
                 arch_name = config['model'].get('architecture', 'unet')
-                best_path = Path(config['data']['models_dir']) / f'best_model_{arch_name}.pth'
+                best_path = run_dir / f'best_model_{arch_name}_epoch_{epoch + 1}.pth'
                 
                 torch.save({
                     'model_state_dict': model.state_dict(),
@@ -397,20 +449,20 @@ def train(config: dict, device: torch.device):
                     logger.info(f"Early stopping después de {epoch + 1} épocas")
                     break
 
-            # Checkpoint periódico
-            if (epoch + 1) % config['training']['save_interval'] == 0:
-                last_saved_epoch = epoch
-                arch_name = config['model'].get('architecture', 'unet')
-                ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_{arch_name}_epoch_{epoch + 1}.pth'
+            # # Checkpoint periódico
+            # if (epoch + 1) % config['training']['save_interval'] == 0:
+            #     last_saved_epoch = epoch
+            #     arch_name = config['model'].get('architecture', 'unet')
+            #     ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_{arch_name}_epoch_{epoch + 1}.pth'
                 
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'model_config': config['model'],
-                    'architecture': arch_name,
-                    'epoch': epoch,
-                    'train_loss': train_metrics['loss']
-                }, ckpt_path)
-                mlflow_logger.log_artifact(str(ckpt_path), artifact_path='checkpoints')
+            #     torch.save({
+            #         'model_state_dict': model.state_dict(),
+            #         'model_config': config['model'],
+            #         'architecture': arch_name,
+            #         'epoch': epoch,
+            #         'train_loss': train_metrics['loss']
+            #     }, ckpt_path)
+            #     mlflow_logger.log_artifact(str(ckpt_path), artifact_path='checkpoints')
 
             # Tiempo total
             epoch_time = time.time() - epoch_start
