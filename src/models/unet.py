@@ -318,7 +318,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-
 class AttentionGate(nn.Module):
     def __init__(self, F_g, F_l, F_int):
         super(AttentionGate, self).__init__()
@@ -441,18 +440,18 @@ class UNet(nn.Module):
         # Nota: Mantenemos los canales iguales para no romper las dimensiones del decoder, 
         # pero añadimos no-linealidad para "romper" la copia directa.
         
-        # self.skip_conv3 = nn.Sequential(nn.Conv2d(base_channels*4, base_channels*4, kernel_size=1), nn.Mish())
-        # self.skip_conv2 = nn.Sequential(nn.Conv2d(base_channels*2, base_channels*2, kernel_size=1), nn.Mish())
-        # self.skip_conv1 = nn.Sequential(nn.Conv2d(base_channels, base_channels, kernel_size=1), nn.Mish())
+        self.skip_conv3 = nn.Sequential(nn.Conv2d(base_channels*4, base_channels*4, kernel_size=1), nn.Mish())
+        self.skip_conv2 = nn.Sequential(nn.Conv2d(base_channels*2, base_channels*2, kernel_size=1), nn.Mish())
+        self.skip_conv1 = nn.Sequential(nn.Conv2d(base_channels, base_channels, kernel_size=1), nn.Mish())
 
 
         # --- ESTRATEGIA C: ATTENTION GATES ---
         # Descomenta esto para usar Attention Gates reales
         # F_g (gate) = canales del upsample, F_l (local) = canales del skip
         
-        # self.att_gate3 = AttentionGate(F_g=base_channels*8, F_l=base_channels*4, F_int=base_channels*2)
-        # self.att_gate2 = AttentionGate(F_g=base_channels*4, F_l=base_channels*2, F_int=base_channels)
-        # self.att_gate1 = AttentionGate(F_g=base_channels*2, F_l=base_channels, F_int=base_channels//2)
+        self.att_gate3 = AttentionGate(F_g=base_channels*8, F_l=base_channels*4, F_int=base_channels*2)
+        self.att_gate2 = AttentionGate(F_g=base_channels*4, F_l=base_channels*2, F_int=base_channels)
+        self.att_gate1 = AttentionGate(F_g=base_channels*2, F_l=base_channels, F_int=base_channels//2)
 
 
         # --- DECODER ---
@@ -491,18 +490,15 @@ class UNet(nn.Module):
         # Copia de la skip connection original
         skip3 = x3 
         
-        # [ESTRATEGIA A: CORTAR CABLE]
-        skip3 = skip3 * 0.0
-
         # [ESTRATEGIA B: SMART FILTER] (Descomentar)
-        # skip3 = self.skip_conv3(skip3)
+        skip3 = self.skip_conv3(skip3)
 
         # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
-        # skip3 = self.att_gate3(g=x_up3, x=skip3)
+        skip3 = self.att_gate3(g=x_up3, x=skip3)
 
         # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
-        # if self.training and torch.rand(1).item() < 0.5: # 50% probabilidad de cortar conexión
-        #     skip3 = skip3 * 0.0
+        if self.training and torch.rand(1).item() < 0.3: # 30% probabilidad de cortar conexión
+            skip3 = skip3 * 0.0
 
         # Concatenación (Esta es la skip connection actual)
         x = torch.cat([x_up3, skip3], dim=1) 
@@ -516,18 +512,15 @@ class UNet(nn.Module):
         
         skip2 = x2
 
-        # [ESTRATEGIA A: CORTAR CABLE]
-        #skip2 = skip2 * 0.0
-
         # [ESTRATEGIA B: SMART FILTER] (Descomentar)
-        # skip2 = self.skip_conv2(skip2)
+        skip2 = self.skip_conv2(skip2)
 
         # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
-        # skip2 = self.att_gate2(g=x_up2, x=skip2)
+        skip2 = self.att_gate2(g=x_up2, x=skip2)
 
         # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
-        # if self.training and torch.rand(1).item() < 0.5:
-        #     skip2 = skip2 * 0.0
+        if self.training and torch.rand(1).item() < 0.1:
+            skip2 = skip2 * 0.0
 
         x = torch.cat([x_up2, skip2], dim=1)
         x = self.conv2(x)
@@ -540,17 +533,11 @@ class UNet(nn.Module):
         
         skip1 = x1
 
-
-        # [ESTRATEGIA A: CORTAR CABLE] 
-        # Forzamos a que la skip connection sea negro absoluto (ceros). 
-        # El modelo se ve obligado a inventar los detalles.
-        # skip1 = skip1 * 0.0
-
         # [ESTRATEGIA B: SMART FILTER] (Descomentar)
-        # skip1 = self.skip_conv1(skip1)
+        skip1 = self.skip_conv1(skip1)
 
         # [ESTRATEGIA C: ATTENTION GATE] (Descomentar)
-        # skip1 = self.att_gate1(g=x_up1, x=skip1)
+        skip1 = self.att_gate1(g=x_up1, x=skip1)
 
         # [ESTRATEGIA D: DROP-SKIP] (Descomentar)
         # if self.training and torch.rand(1).item() < 0.5:
