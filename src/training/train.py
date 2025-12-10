@@ -24,7 +24,10 @@ def train_epoch(
     optimizer: Optimizer,
     loss_fn,
     device: torch.device,
-    epoch: int
+    epoch: int,
+    discriminator: nn.Module = None,
+    optimizer_d: Optimizer = None,
+    config: Dict = None
 ) -> Dict[str, float]:
     """
     Entrena el modelo durante una época
@@ -40,6 +43,15 @@ def train_epoch(
     Returns:
         Diccionario con métricas de entrenamiento
     """
+    
+    if discriminator:
+        discriminator.train()
+        # Inicializar losses GAN si no existen en loss_fn
+        if not hasattr(loss_fn, 'gan_loss'):
+             from src.models.losses import GANLoss, FeatureMatchingLoss
+             loss_fn.gan_loss = GANLoss().to(device)
+             loss_fn.feature_matching_loss = FeatureMatchingLoss().to(device)
+             
     model.train()
     
     # Acumulador de métricas
@@ -59,14 +71,98 @@ def train_epoch(
         optimizer.zero_grad()
         output = model(input_img)
         
-        # Calcular pérdida (Siempre es HybridLoss -> retorna dict)
+        if discriminator is not None and optimizer_d is not None:
+            # --- GAN Training ---
+            
+            # 1. Train Discriminator
+            optimizer_d.zero_grad()
+            
+            # Real
+            # Concatenamos input + target para Conditional GAN (cGAN)
+            real_ab = torch.cat((input_img, target_img), 1)
+            pred_real, _ = discriminator(real_ab)
+            loss_d_real = loss_fn.gan_loss(pred_real, True)
+            
+            # Fake
+            # Detach para no backpropagar al generador en este paso
+            fake_ab = torch.cat((input_img, output.detach()), 1)
+            pred_fake, _ = discriminator(fake_ab) 
+            loss_d_fake = loss_fn.gan_loss(pred_fake, False)
+            
+            # Total Discriminator Loss
+            loss_d = (loss_d_real + loss_d_fake) * 0.5
+            loss_d.backward()
+            optimizer_d.step()
+            
+            accumulated_metrics['d_loss'] = accumulated_metrics.get('d_loss', 0.0) + loss_d.item()
+            
+            # 2. Train Generator (Adversarial)
+            # Ya hemos hecho zero_grad del optimizador del generador arriba? NO, hicimos antes de model(input)
+            # Pero necesitamos volver a calcular output para grafos?
+            # En Pytorch estándar, si retain_graph=True en backward anterior o re-forward.
+            # Aquí, 'output' ya se usó para loss principal (L1/LPIPS). 
+            # PERO 'loss.backward()' ya se llamó para la loss "normal" (Pixel/Perceptual).
+            # Si queremos sumar la loss GAN al generador, deberíamos haberla sumado ANTES de backward().
+            
+            # REFACTORING LOOP:
+            # Calculamos TODAS las losses del generador y hacemos UN solo backward.
+            
+            # Reiniciamos el grafo para el paso correcto:
+            # A. Discriminator Step (ya hecho arriba con detach)
+            # B. Generator Step (incluye G_GAN + L1 + LPIPS...)
+            
+            # Dado que loss.backward() ya se ejecutó para pixels/lpips en el código original (líneas 62-67),
+            # tenemos un problema: los gradientes de G ya se calcularon parcialmente.
+            # IDEALMENTE: Sumar todo a 'loss' antes de backward.
+            
+            # CORRECCIÓN EN EL PROCESO:
+            # Moveremos el backward original para después del cálculo de GAN.
+            
+            pass # Placeholder para indicar que cambiamos la lógica abajo
+        
+        # --- Cálculo de Loss del Generador (Pixel + Perceptual + GAN) ---
+        
+        # Reset Grads (si no se hizo antes, pero train_epoch original lo hace al inicio)
+        # optimizer.zero_grad() # Ya está en línea 59
+        
+        # Si ya se hizo output = model(input), lo usamos.
+        
+        # Losses Estándar
         losses_dict = loss_fn(output, target_img, mask=mask)
-        loss = losses_dict['total']
+        loss_g_total = losses_dict['total']
         
-        # Backward pass
-        loss.backward()
+        # Add GAN Loss to Generator
+        if discriminator is not None:
+             # Adversarial Loss: Queremos que D crea que es Real
+             fake_ab_g = torch.cat((input_img, output), 1) # Sin detach!
+             pred_fake_g, pred_features = discriminator(fake_ab_g)
+             
+             loss_g_gan = loss_fn.gan_loss(pred_fake_g, True)
+             
+             # Feature Matching Loss
+             # Necesitamos features reales (sin gradientes)
+             with torch.no_grad():
+                 real_ab_feat = torch.cat((input_img, target_img), 1)
+                 _, real_features = discriminator(real_ab_feat)
+                 
+             loss_fm = loss_fn.feature_matching_loss(pred_features, real_features)
+             
+             # Weights from config
+             lambda_gan = config['gan'].get('lambda_gan', 0.01)
+             lambda_fm = config['gan'].get('lambda_feature_matching', 10.0)
+             
+             loss_g_total += (loss_g_gan * lambda_gan) + (loss_fm * lambda_fm)
+             
+             # Log metrics
+             losses_dict['g_gan'] = loss_g_gan.item()
+             losses_dict['g_fm'] = loss_fm.item()
+             accumulated_metrics['g_gan_loss'] = accumulated_metrics.get('g_gan_loss', 0.0) + loss_g_gan.item()
+             
         
-        # Gradient Clipping (Crucial para NAFNet/MambaIR)
+        # Backward (Generator)
+        loss_g_total.backward() # Un solo backward acumulado
+        
+        # Gradient Clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
         optimizer.step()

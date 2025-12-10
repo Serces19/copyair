@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import PairedImageDataset, get_transforms
 from src.models import HybridLoss
+from src.models.discriminator import NLayerDiscriminator # [NEW]
 from src.models.factory import get_model, get_optimizer
 from src.training.train import train_epoch, validate
 from src.training.schedulers import get_scheduler
@@ -200,7 +201,30 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
     
     logger.info(f"Parámetros del modelo: {sum(p.numel() for p in model.parameters()):,}")
     
-    return model, optimizer, scheduler, loss_fn
+    logger.info(f"Parámetros del modelo: {sum(p.numel() for p in model.parameters()):,}")
+    
+    # --- Configurar Discriminador (GAN) ---
+    discriminator = None
+    optimizer_d = None
+    
+    if config.get('gan', {}).get('enabled', False):
+        logger.info("Inicializando Discriminador (PatchGAN)...")
+        gan_config = config['gan']['discriminator']
+        discriminator = NLayerDiscriminator(
+            input_nc=config['model']['in_channels'] + config['model']['out_channels'], # Conditional GAN: Input + Output
+            ndf=gan_config.get('ndf', 64),
+            n_layers=gan_config.get('n_layers', 3)
+        ).to(device)
+        
+        # Optimizador discriminador
+        optimizer_d = torch.optim.AdamW(
+            discriminator.parameters(),
+            lr=float(config['gan']['discriminator']['lr']),
+            betas=(0.5, 0.999) # Beta1 0.5 es estándar para GANs
+        )
+        logger.info(f"Discriminador parámetros: {sum(p.numel() for p in discriminator.parameters()):,}")
+
+    return model, optimizer, scheduler, loss_fn, discriminator, optimizer_d
 
 
 def log_training_sample(train_loader, mlflow_logger, device):
@@ -245,7 +269,8 @@ def train(config: dict, device: torch.device):
     train_loader, val_loader = setup_data(config, device)
 
     # Modelo
-    model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device, train_loader)
+    model, optimizer, scheduler, loss_fn, discriminator, optimizer_d = setup_model_and_optimizer(config, device, train_loader)
+
 
     # Directorio de modelos
     Path(config['data']['models_dir']).mkdir(parents=True, exist_ok=True)
@@ -285,8 +310,12 @@ def train(config: dict, device: torch.device):
             epoch_start = time.time()
 
             # --- Entrenamiento ---
-            train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch)
+            train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch, discriminator, optimizer_d, config)
             mlflow_logger.log_metric('train/loss', train_metrics['loss'], step=epoch)
+            if 'd_loss' in train_metrics:
+                 mlflow_logger.log_metric('train/d_loss', train_metrics['d_loss'], step=epoch)
+            if 'g_gan_loss' in train_metrics:
+                 mlflow_logger.log_metric('train/g_gan_loss', train_metrics['g_gan_loss'], step=epoch)
 
             # Loguear muestra de entrenamiento
             #log_training_sample(train_loader, mlflow_logger, device)
@@ -435,13 +464,19 @@ def train(config: dict, device: torch.device):
                 arch_name = config['model'].get('architecture', 'unet')
                 best_path = run_dir / f'best_model_{arch_name}_epoch_{epoch + 1}.pth'
                 
-                torch.save({
+                save_dict = {
                     'model_state_dict': model.state_dict(),
                     'model_config': config['model'],
                     'architecture': arch_name,
                     'epoch': epoch,
                     'train_loss': train_metrics['loss']
-                }, best_path)
+                }
+                
+                # Guardar discriminador si existe
+                if discriminator is not None:
+                     save_dict['discriminator_state_dict'] = discriminator.state_dict()
+                
+                torch.save(save_dict, best_path)
                 
                 logger.info(f"✓ Mejor modelo guardado (Train Loss: {train_metrics['loss']:.4f})")
                 mlflow_logger.log_artifact(str(best_path), artifact_path='checkpoints')

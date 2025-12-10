@@ -92,6 +92,14 @@ loss:
   lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
   lambda_multiscale: 0.3  # [NEW] Supervisión Estructural (Pyramid Loss)
 
+# Generador Adversarial
+gan:
+  enabled: true
+  lambda_gan: 0.01        # Low weight to preserve structure
+  lambda_feature_matching: 10.0 # High weight to stabilize texture
+  discriminator:
+    lr: 1e-4
+    n_layers: 3
 
 # Masked Loss (Entrenamiento Ponderado)
 masked_loss:

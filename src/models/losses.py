@@ -677,3 +677,51 @@ class HybridLoss(nn.Module):
         metrics['total'] = total_loss
             
         return metrics
+
+
+# --- GAN Losses ---
+
+class GANLoss(nn.Module):
+    """
+    Define GAN loss: [MSELoss (LSGAN) | BCEWithLogitsLoss (Vanilla GAN) | BCELoss]
+    """
+    def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
+        super(GANLoss, self).__init__()
+        self.register_buffer('real_label', torch.tensor(target_real_label))
+        self.register_buffer('fake_label', torch.tensor(target_fake_label))
+        
+        if use_lsgan:
+            self.loss = nn.MSELoss()
+        else:
+            self.loss = nn.BCEWithLogitsLoss()
+
+    def get_target_tensor(self, prediction, target_is_real):
+        if target_is_real:
+            target_tensor = self.real_label
+        else:
+            target_tensor = self.fake_label
+        return target_tensor.expand_as(prediction)
+
+    def forward(self, prediction, target_is_real):
+        target_tensor = self.get_target_tensor(prediction, target_is_real)
+        loss = self.loss(prediction, target_tensor)
+        return loss
+
+
+class FeatureMatchingLoss(nn.Module):
+    """
+    Penaliza la diferencia L1 entre las activaciones intermedias del discriminador
+    para la imagen real y la generada. Estabiliza el entrenamiento.
+    """
+    def __init__(self):
+        super().__init__()
+        self.l1 = nn.L1Loss()
+        
+    def forward(self, pred_features, target_features):
+        loss = 0
+        # target_features son detached, pero pred_features no.
+        for pred_feat, tgt_feat in zip(pred_features, target_features):
+            loss += self.l1(pred_feat, tgt_feat.detach()) # Importante: detach del target
+            
+        return loss / len(pred_features)
+
