@@ -11,10 +11,16 @@ class MLflowLogger:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.enabled = config.get('mlflow', {}).get('enabled', False)
+        self.active_run = None
+        
         if self.enabled:
             tracking_uri = config.get('mlflow', {}).get('tracking_uri', None)
             if tracking_uri:
+                # Force setting the tracking URI from config to avoid Env Var conflicts if desired
+                # Or just respect it. But here we want to ensure it works.
                 mlflow.set_tracking_uri(tracking_uri)
+                logger.info(f"MLflow Tracking URI set to: {tracking_uri}")
+                
             experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
             mlflow.set_experiment(experiment_name)
 
@@ -25,14 +31,15 @@ class MLflowLogger:
         if run_name is None:
             run_name = f"{self.config['model'].get('architecture', 'unet')}_{self.config['training'].get('optimizer', {}).get('type', 'adam')}"
         
-        return mlflow.start_run(run_name=run_name)
+        # Start run and store it
+        self.active_run = mlflow.start_run(run_name=run_name)
+        return self.active_run
 
     def log_params(self, params: Dict[str, Any]):
         if not self.enabled:
             return
 
         flat_params = self._flatten(params)
-        # mlflow.log_params expects string/int/float values; convert complex types to json strings
         safe_params = {
             k: (json.dumps(v) if isinstance(v, (list, dict, tuple)) else (v if v is not None else 'null')) 
             for k, v in flat_params.items()
@@ -52,7 +59,11 @@ class MLflowLogger:
 
     def log_artifact(self, local_path: str, artifact_path: Optional[str] = None):
         if self.enabled:
-            mlflow.log_artifact(local_path, artifact_path=artifact_path)
+            try:
+                mlflow.log_artifact(local_path, artifact_path=artifact_path)
+            except Exception as e:
+                # Avoid crashing if artifact logging fails (common with SQLite without artifact store)
+                logger.warning(f"Failed to log artifact {local_path}: {e}")
 
     def log_model(self, model, artifact_path: str = 'model'):
         if self.enabled:
@@ -64,6 +75,7 @@ class MLflowLogger:
     def end_run(self):
         if self.enabled:
             mlflow.end_run()
+            self.active_run = None
 
     def _flatten(self, d: dict, parent_key: str = '', sep: str = '.') -> dict:
         items = {}
@@ -72,7 +84,6 @@ class MLflowLogger:
             if isinstance(v, dict):
                 items.update(self._flatten(v, new_key, sep=sep))
             else:
-                # Convert non-primitive values to JSON strings so MLflow can store them
                 if isinstance(v, (list, tuple, dict)):
                     try:
                         items[new_key] = json.dumps(v)
@@ -86,5 +97,10 @@ class MLflowLogger:
     def get_run_id(self) -> Optional[str]:
         if not self.enabled:
             return None
+        
+        if self.active_run:
+            return self.active_run.info.run_id
+            
+        # Fallback to global active run
         run = mlflow.active_run()
         return run.info.run_id if run else None

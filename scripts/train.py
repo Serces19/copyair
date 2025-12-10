@@ -455,6 +455,9 @@ def train(config: dict, device: torch.device):
 
                 # Obtener el run_id actual
                 run_id = mlflow_logger.get_run_id()
+                if not run_id:
+                    run_id = f"offline_run_{int(time.time())}"
+                    logger.warning(f"No MLflow run_id found. Using fallback: {run_id}")
 
                 # Crear carpeta única para este run
                 run_dir = Path(config['data']['models_dir']) / run_id
