@@ -11,68 +11,76 @@ data:
 # Parámetros del modelo
 model:
   # Arquitecturas disponibles:
-  # - unet: U-Net clásica
-  # - nafnet: NAFNet HD (mejor para pocas imágenes)
-  # - convnext: ConvNeXt U-Net (excelente para few-shot)
-  # - mambair: MambaIRv2 (SOTA, global context, eficiente)
-  # - swin_unet: SwinV2 U-Net (Transformers)
+  # - basic_unet: U-Net clásica, simple y limpia.
+  # - smart_unet: U-Net mejorada con opciones configurables (Attention, Smart Filter).
+  # - residual_unet: U-Net con Global Residual y ResBlocks.
+  # - modern_unet: SOTA 2025 VFX Architecture (FiLM, AdaIN, Attention, Multi-Head).
   
-  architecture: "unet"  # Cambiar a "nafnet", "convnext" o "mambair"
+  architecture: "basic_unet" 
   
-  # Para NAFNet, ConvNeXt y MambaIR, especificar tamaño:
-  size: "base"  # nano, tiny, small, base, large (según arquitectura)
-  
-  # Parámetros generales
+  # Parámetros Generales
   in_channels: 3
   out_channels: 3
-  base_channels: 64  # Solo para UNet
-  activation: "mish"  # Solo para UNet: relu, gelu, mish, silu, leaky_relu
+  base_channels: 64
   
-  # Para ConvNeXt: drop_path_rate (regularización)
-  drop_path_rate: 0.01  # 0.05-0.2 recomendado para pocas imágenes
+  # Input Map Support (Solo ModernUNet)
+  input_map_channels: 0  # Canales extra para mascaras, depth, etc.
   
-  # Opciones avanzadas de arquitectura (UNet, ConvNeXt, NAFNet)
-  use_batchnorm: false    # Solo UNet
-  dropout_p: 0.00         # Probabilidad de dropout
-  use_transpose: false   # UNet y ConvNeXt (False = Upsample + Conv)
-
-  # Para SwinV2 UNet
-  swin_type: "tiny" # tiny, small, base
-  pretrained: true
-  use_global_residual: true
+  # Configuración de Bloques
+  norm_type: "group"    # batch, group, instance, none
+  activation: "silu"    # relu, gelu, silu, mish, leakyrelu
+  groups: 32            # Para GroupNorm
+  dropout_p: 0.0
+  
+  # --- Configuración Específica por Modelo ---
+  
+  # SmartUNet Options
+  smart:
+    use_attention: false
+    use_smart_filter: false
+    drop_skip_prob: 0.0
+  
+  # ResidualUNet Options
+  residual:
+    use_dilated_bottleneck: true
+  
+  # ModernUNet Options (VFX)
+  modern:
+    use_film: true       # Feature-wise Linear Modulation
+    use_adain: false     # Adaptive Instance Norm
+    attention_type: "self" # self (bottleneck), none
+    cond_dim: 128        # Dimensión del vector de condicionamiento (si usa FiLM)
 
 # Parámetros de entrenamiento
 training:
   epochs: 2500
-  batch_size: 8  # UNet puede manejar batch_size más grande
-  learning_rate: 1e-3 # Reducido para estabilidad (antes 1e-3 o 2e-4) 
+  batch_size: 4
+  learning_rate: 2e-4
   weight_decay: 1e-4
   
   # Memory Optimization
-  mixed_precision: true  # Automatic Mixed Precision (50% menos VRAM, 2-3x más rápido)
-  gradient_accumulation_steps: 1  # Acumular gradientes (1 = desactivado, 2+ = simula batch más grande)
-  clear_cache_every_n_epochs: 10  # Limpiar cache CUDA cada N épocas (evita fragmentación)
+  mixed_precision: true
+  gradient_accumulation_steps: 1
+  clear_cache_every_n_epochs: 10
   
   # Optimizador
   optimizer:
-    type: "adamw" # adam, adamw, sgd, rmsprop
+    type: "adamw"
     beta1: 0.9
     beta2: 0.999
-    momentum: 0.9 # Solo para SGD
+    momentum: 0.9
   
   # Learning Rate Scheduler
   scheduler:
     type: "cosine"
     params:
-      T_max: 3500 # Número total de épocas
-      eta_min: 1e-8 # LR mínimo al final
- 
+      T_max: 2500
+      eta_min: 1e-7
   
   # Validación
-  # Si es 0, se entrena con TODO el dataset y se valida con 1 muestra aleatoria (sin augs) por época
   val_split: 0
-  val_interval: 25  # Validar cada N épocas (para eficiencia en few-shot)
-  val_samples: 5    # Número de imágenes aleatorias para validar (si val_split=0)
+  val_interval: 25
+  val_samples: 4
   viz_interval: 250
   
   # Checkpoint
@@ -81,60 +89,59 @@ training:
 
 # Parámetros de pérdida
 loss:
-  lambda_l1: 0.0
+  lambda_l1: 1.0
   lambda_ssim: 0.2
   lambda_perceptual: 0.8
-  lambda_laplacian: 0.0
-  lambda_ffl: 0.00      # Focal Frequency Loss (Detalle fino)
-  lambda_dreamsim: 0.00 # DreamSim Loss (Coherencia semántica)
-  lambda_dino: 0.00     # DINO Loss (Perceptual profunda)
-  lambda_charbonnier: 0.0 # Charbonnier Loss (Robust L1) - Recomendado: 1.0 (si reemplaza L1)
-  lambda_sobel: 0.0       # Sobel Loss (Bordes) - Recomendado: 0.1-0.2
-  lambda_multiscale: 0.3  # [NEW] Supervisión Estructural (Pyramid Loss)
+  lambda_laplacian: 0.1
+  lambda_ffl: 0.0
+  lambda_dreamsim: 0.0
+  lambda_dino: 0.0
+  lambda_charbonnier: 0.0
+  lambda_sobel: 0.0
+  lambda_multiscale: 0.0
 
 # Generador Adversarial
 gan:
-  enabled: true
-  lambda_gan: 0.01        # Low weight to preserve structure
-  lambda_feature_matching: 10.0 # High weight to stabilize texture
+  enabled: false
+  lambda_gan: 0.01
+  lambda_feature_matching: 10.0
   discriminator:
     lr: 1e-4
     n_layers: 3
 
-# Masked Loss (Entrenamiento Ponderado)
+# Masked Loss
 masked_loss:
   enabled: false
-  threshold: 0.05      # Diferencia mínima para considerar "cambio"
-  dilation_kernel: 5   # Engrosar máscara (píxeles)
-  blur_kernel: 5       # Suavizar bordes (píxeles)
+  threshold: 0.05
+  dilation_kernel: 5
+  blur_kernel: 5
 
 # Aumentación de datos
 augmentation:
   enabled: true
   img_size: 256
-  horizontal_flip_p: 0.0
-  vertical_flip_p: 0.0
-  rotation_limit: 0
-  gaussian_noise_p: 0.0
+  horizontal_flip_p: 0.5
+  vertical_flip_p: 0.5
+  rotation_limit: 15
+  gaussian_noise_p: 0.1
   gaussian_blur_p: 0.1
-  color_jitter_p: 0.1
+  color_jitter_p: 0.2
 
 # Hardware
-device: "cuda"  # cuda o cpu
-num_workers: 4
+device: "cuda"
+num_workers: 0 # Windows a veces falla con >0
 pin_memory: true
 
-# Logging y experimentos
+# Logging
 logging:
   level: "INFO"
   log_dir: "logs"
-  
-mlflow:
-  enabled: true
-  experiment_name: "copyair_experiments"
-  tracking_uri: "mlruns" # Local directory or server URI
+  mlflow:
+    enabled: true
+    experiment_name: "copyair_experiments"
+    tracking_uri: "mlruns"
 
-# Inferencia en video
+# Inferencia
 inference:
   target_fps: 24
-  frame_sample_rate: 1  # Procesar cada N frames
+  frame_sample_rate: 1
