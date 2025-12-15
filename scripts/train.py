@@ -486,21 +486,6 @@ def train(config: dict, device: torch.device):
                     logger.info(f"Early stopping después de {epoch + 1} épocas")
                     break
 
-            # # Checkpoint periódico
-            # if (epoch + 1) % config['training']['save_interval'] == 0:
-            #     last_saved_epoch = epoch
-            #     arch_name = config['model'].get('architecture', 'unet')
-            #     ckpt_path = Path(config['data']['models_dir']) / f'checkpoint_{arch_name}_epoch_{epoch + 1}.pth'
-                
-            #     torch.save({
-            #         'model_state_dict': model.state_dict(),
-            #         'model_config': config['model'],
-            #         'architecture': arch_name,
-            #         'epoch': epoch,
-            #         'train_loss': train_metrics['loss']
-            #     }, ckpt_path)
-            #     mlflow_logger.log_artifact(str(ckpt_path), artifact_path='checkpoints')
-
             # Tiempo total
             epoch_time = time.time() - epoch_start
             mlflow_logger.log_metric('time/epoch_duration', epoch_time, step=epoch)

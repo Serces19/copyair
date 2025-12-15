@@ -289,7 +289,7 @@ def main():
     """Función principal"""
     
     # Configuración
-    IMAGE_PATH = "../data/01_raw/input/deaging_001.png"  # Cambiar por la ruta de tu imagen
+    IMAGE_PATH = "./data/01_raw/input/deaging_001.png"  # Cambiar por la ruta de tu imagen
     N_TRIALS = 10  # Número de intentos por tipo/intensidad de ruido
     NOISE_INTENSITIES = [0.01, 0.05, 0.1, 0.15, 0.2]
     
@@ -349,17 +349,19 @@ def main():
 
 if __name__ == "__main__":
     # Verificar dependencias
-    required_packages = ['torch', 'transformers', 'PIL', 'matplotlib', 'scikit-learn', 'numpy']
+    # required_packages = ['torch', 'transformers', 'PIL', 'matplotlib', 'scikit-learn', 'numpy']
     
-    missing_packages = []
-    for package in required_packages:
-        try:
-            __import__(package)
-        except ImportError:
-            missing_packages.append(package)
+    # missing_packages = []
+    # for package in required_packages:
+    #     try:
+    #         __import__(package)
+    #     except ImportError:
+    #         missing_packages.append(package)
     
-    if missing_packages:
-        print(f"Paquetes faltantes: {missing_packages}")
-        print("Instala con: pip install", " ".join(missing_packages))
-    else:
-        main()
+    # if missing_packages:
+    #     print(f"Paquetes faltantes: {missing_packages}")
+    #     print("Instala con: pip install", " ".join(missing_packages))
+    # else:
+    #     main()
+
+    main()

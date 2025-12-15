@@ -136,10 +136,12 @@ pin_memory: true
 logging:
   level: "INFO"
   log_dir: "logs"
-  mlflow:
-    enabled: true
-    experiment_name: "copyair_experiments"
-    tracking_uri: "mlruns"
+
+# MLflow Tracking
+mlflow:
+  enabled: true
+  experiment_name: "copyair_experiments"
+  tracking_uri: "mlruns"
 
 # Inferencia
 inference:
