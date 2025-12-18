@@ -71,7 +71,6 @@ def setup_data(config: dict, device: torch.device):
         )
         
         # Validación: Resolución nativa (con límite para evitar OOM)
-        # Validación: Resolución nativa (con límite para evitar OOM)
         native_val_transform = A.Compose([
             A.LongestMaxSize(max_size=1080),
             A.PadIfNeeded(min_height=None, min_width=None, pad_height_divisor=32, pad_width_divisor=32),
@@ -345,45 +344,6 @@ def train(config: dict, device: torch.device):
                 
                 logger.info(f"[Validación] PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS: {val_metrics['val_lpips_sliding']:.4f}")
 
-            # --- Visualización ---
-            # if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
-            #     try:
-            #         viz_start = time.time()
-                    
-            #         # Usar datos cacheados si existen, si no, intentar obtener del loader (fallback)
-            #         if latest_val_input is not None:
-            #             input_vis_t = latest_val_input[0]
-            #             gt_vis_t = latest_val_target[0]
-            #             pred_vis_t = latest_val_pred[0]
-            #         else:
-            #             # Fallback si viz_interval no coincide con val_interval y no hay cache
-            #             logger.info("Generando visualización (sin cache de validación)...")
-            #             batch = next(iter(val_loader))
-            #             input_vis_t = batch['input'][0].to(device)
-            #             gt_vis_t = batch['gt'][0].to(device)
-            #             model.eval()
-            #             with torch.no_grad():
-            #                 pred_vis_t = model(input_vis_t.unsqueeze(0)).squeeze(0)
-
-            #         # Procesar imágenes
-            #         input_vis = tensor_to_numpy(input_vis_t)
-            #         gt_vis = tensor_to_numpy(gt_vis_t)
-            #         pred_vis = tensor_to_numpy(pred_vis_t)
-                    
-            #         comparison = np.concatenate([input_vis, gt_vis, pred_vis], axis=1)
-            #         comparison = (comparison * 255).astype(np.uint8)
-                    
-            #         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-            #             Image.fromarray(comparison).save(f.name)
-            #             mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
-            #             os.unlink(f.name)
-                    
-            #         mlflow_logger.log_metric('time/viz_duration', time.time() - viz_start, step=epoch)
-            #         logger.info(f"✓ Imagen de validación guardada (época {epoch+1})")
-                    
-            #     except Exception as e:
-            #         logger.warning(f"No se pudo guardar imagen de validación: {e}")
-            
 
             # --- Visualización ---
             if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
@@ -413,10 +373,10 @@ def train(config: dict, device: torch.device):
                     comparison = (comparison * 255).astype(np.uint8)
 
                     # Guardar como artifact genérico (opcional, para tenerlo en Artifacts)
-                    # with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-                    #     Image.fromarray(comparison).save(f.name)
-                    #     mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
-                    #     os.unlink(f.name)
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                        Image.fromarray(comparison).save(f.name)
+                        mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
+                        os.unlink(f.name)
 
                     # Loggear también como imagen reconocida por MLflow (para el grid en Model Metrics)
                     mlflow.log_image(comparison, f"epoch_{epoch+1}.png")
@@ -462,7 +422,7 @@ def train(config: dict, device: torch.device):
 
                 # Guardar best model dentro de esa carpeta
                 arch_name = config['model'].get('architecture', 'unet')
-                best_path = run_dir / f'best_model_{arch_name}_epoch_{epoch + 1}.pth'
+                best_path = run_dir / f'best_model_{arch_name}.pth'
                 
                 save_dict = {
                     'model_state_dict': model.state_dict(),
