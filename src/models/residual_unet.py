@@ -127,4 +127,4 @@ class ResidualUNet(nn.Module):
 
         residual = self.tanh(self.outc(x))
         
-        return input_tensor + residual
+        return torch.clamp(input_tensor + residual, -1.0, 1.0)

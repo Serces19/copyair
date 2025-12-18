@@ -69,7 +69,23 @@ def train_epoch(
         
         # Forward pass
         optimizer.zero_grad()
-        output = model(input_img)
+        
+        # Preparar argumentos extra para modelos como ModernUNet
+        kwargs = {}
+        arch = config['model'].get('architecture', 'unet').lower()
+        if arch == 'modern_unet':
+            # Por ahora pasamos un vector de ceros (o aleatorio si se prefiere)
+            # Esto activa el flujo de FiLM/AdaIN en el modelo
+            cond_dim = config['model'].get('modern', {}).get('cond_dim', 128)
+            kwargs['cond_vector'] = torch.zeros(input_img.size(0), cond_dim).to(device)
+            # Podríamos pasar ruido aleatorio para forzar robustez:
+            # kwargs['cond_vector'] = torch.randn(input_img.size(0), cond_dim).to(device)
+
+        output = model(input_img, **kwargs)
+        
+        # Manejar salida multi-head (diccionario)
+        if isinstance(output, dict):
+            output = output['rgb'] # Usamos la salida RGB principal para la loss común
         
         if discriminator is not None and optimizer_d is not None:
             # --- GAN Training ---
@@ -231,7 +247,24 @@ def validate(
             input_img = batch['input'].to(device)
             target_img = batch['gt'].to(device)
             
-            output = model(input_img)
+            # Preparar argumentos extra
+            kwargs = {}
+            # Necesitamos acceder a la config del modelo. 
+            # Como validate no recibe config completa, la inferimos o podríamos pasarla.
+            # Pero podemos chequear si el modelo es ModernUNet por sus atributos.
+            if hasattr(model, 'use_film') and hasattr(model, 'cond_mlp'):
+                from src.models.factory import get_model # Not ideal inside loop, but safe if architecture is check
+                # Mejor: Solo chequear si acepta cond_vector
+                cond_dim = getattr(model, 'cond_dim', 128) # Asumimos o leemos de atributo si existe
+                if not hasattr(model, 'cond_dim'): # Fallback robusto
+                     # Intentamos leer de la config si estuviera disponible, sino 128
+                     cond_dim = 128 
+                kwargs['cond_vector'] = torch.zeros(input_img.size(0), cond_dim).to(device)
+
+            output = model(input_img, **kwargs)
+            
+            if isinstance(output, dict):
+                output = output['rgb']
             
             # 1. Pérdida Híbrida (la misma que train)
             losses_dict = loss_fn(output, target_img)
