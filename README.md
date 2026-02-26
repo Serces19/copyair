@@ -70,17 +70,17 @@ copyair/
 git clone https://github.com/Serces19/copyair.git
 cd copyair
 
-# Crear entorno virtual
-python -m venv venv
+# Crear entorno virtual con uv
+uv venv .venv
 
 # Activar entorno (Windows)
-venv\Scripts\activate
+.venv\Scripts\activate
 
 # Activar entorno (Linux/Mac)
-source venv/bin/activate
+source .venv/bin/activate
 
-# Instalar dependencias
-pip install -r requirements.txt
+# Instalar dependencias desde requirements.txt
+uv pip install -r requirements.txt
 
 # Iniciar MLFlow
 mlflow server --host 0.0.0.0 --port 5000 --allowed-hosts "*"

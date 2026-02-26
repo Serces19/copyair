@@ -1,0 +1,36 @@
+[project]
+name = "copyair"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "albumentations>=2.0.8",
+    "black>=25.12.0",
+    "dreamsim>=0.2.1",
+    "dvc>=3.65.0",
+    "fastapi>=0.127.0",
+    "flake8>=7.3.0",
+    "isort>=7.0.0",
+    "kagglehub>=0.3.13",
+    "matplotlib>=3.10.8",
+    "mlflow>=3.8.0",
+    "numpy>=2.4.0",
+    "opencv-python>=4.11.0.86",
+    "pillow>=12.0.0",
+    "plotly>=6.5.0",
+    "pytest>=9.0.2",
+    "python-multipart>=0.0.21",
+    "pyyaml>=6.0.3",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.8.0",
+    "tensorboard>=2.20.0",
+    "timm>=1.0.22",
+    "torch>=2.9.1",
+    "torchmetrics>=1.8.2",
+    "torchvision>=0.24.1",
+    "tqdm>=4.67.1",
+    "transformers>=4.57.3",
+    "uvicorn>=0.40.0",
+    "wandb>=0.23.1",
+]

@@ -2,8 +2,8 @@
 
 # Parámetros de entrada/salida
 data:
-  input_dir: "data/03_processed/input"
-  gt_dir: "data/03_processed/gt"
+  input_dir: "data/03_processed/input_comic"
+  gt_dir: "data/03_processed/gt_comic"
   frames_dir: "data/01_raw/input"
   output_dir: "output_inference"
   models_dir: "models"
@@ -16,7 +16,7 @@ model:
   # - residual_unet: U-Net con Global Residual y ResBlocks.
   # - modern_unet: SOTA 2025 VFX Architecture (FiLM, AdaIN, Attention, Multi-Head).
   
-  architecture: "basic_unet" 
+  architecture: "residual_unet" 
   
   # Parámetros Generales
   in_channels: 3
@@ -28,7 +28,7 @@ model:
   
   # Configuración de Bloques
   norm_type: "group"    # batch, group, instance, none
-  activation: "silu"    # relu, gelu, silu, mish, leakyrelu
+  activation: "mish"    # relu, gelu, silu, mish, leakyrelu
   groups: 32            # Para GroupNorm
   dropout_p: 0.0
   
@@ -74,8 +74,8 @@ training:
   scheduler:
     type: "cosine"
     params:
-      T_max: 2500
-      eta_min: 1e-7
+      T_max: 5000
+      eta_min: 1e-5
   
   # Validación
   val_split: 0
@@ -89,14 +89,14 @@ training:
 
 # Parámetros de pérdida
 loss:
-  lambda_l1: 1.0
-  lambda_ssim: 0.2
+  lambda_l1: 0.0
+  lambda_ssim: 0.0
   lambda_perceptual: 0.8
   lambda_laplacian: 0.1
   lambda_ffl: 0.0
   lambda_dreamsim: 0.0
-  lambda_dino: 0.0
-  lambda_charbonnier: 0.0
+  lambda_dino: 0.2
+  lambda_charbonnier: 0.2
   lambda_sobel: 0.0
   lambda_multiscale: 0.0
 
@@ -118,14 +118,14 @@ masked_loss:
 
 # Aumentación de datos
 augmentation:
-  enabled: true
-  img_size: 256
-  horizontal_flip_p: 0.5
-  vertical_flip_p: 0.5
-  rotation_limit: 15
-  gaussian_noise_p: 0.1
+  enabled: false
+  img_size: 512
+  horizontal_flip_p: 0.0
+  vertical_flip_p: 0.0
+  rotation_limit: 0
+  gaussian_noise_p: 0.0
   gaussian_blur_p: 0.1
-  color_jitter_p: 0.2
+  color_jitter_p: 0.1
 
 # Hardware
 device: "cuda"
@@ -140,7 +140,7 @@ logging:
 # MLflow Tracking
 mlflow:
   enabled: true
-  experiment_name: "copyair_experiments"
+  experiment_name: "copyair_experiments_comic"
   tracking_uri: "mlruns"
 
 # Inferencia
