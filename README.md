@@ -22,8 +22,8 @@ cd copyair
 # Crear entorno virtual con uv
 uv venv .venv
 
-# Activar entorno (Windows)
-.venv\Scripts\activate
+# Activar entorno (Linux)
+source .venv/bin/activate
 
 # Instalar dependencias
 uv pip install -r requirements.txt
