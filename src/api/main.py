@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import os
 
 from src.api.routes import config_routes, job_routes, ws_routes
@@ -24,6 +25,7 @@ app.include_router(config_routes.router, prefix="/api/config", tags=["Configurat
 app.include_router(job_routes.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(ws_routes.router, prefix="/api/ws", tags=["WebSockets"])
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
-    return {"message": "Welcome to CopyAir ML API", "status": "online"}
+    """Serves the professional test UI"""
+    return FileResponse("test_api.html")

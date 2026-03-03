@@ -1,141 +1,563 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CopyAir API Tester</title>
+    <title>CopyAir / NeuralShot - Professional Control Center</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <style>
-        :root { --vfx-primary: #00d2ff; --vfx-bg: #121212; --vfx-card: #1e1e1e; --vfx-text: #e0e0e0; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--vfx-bg); color: var(--vfx-text); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 95vh; gap: 20px; }
-        .header { border-bottom: 2px solid var(--vfx-primary); padding-bottom: 10px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; }
-        .panel { background: var(--vfx-card); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; border: 1px solid #333; }
-        h2 { margin-top: 0; color: var(--vfx-primary); font-size: 1.2rem; }
-        textarea { flex: 1; background: #000; color: #0f0; border: 1px solid #444; padding: 10px; font-family: 'Courier New', Courier, monospace; resize: none; border-radius: 4px; }
-        .controls { margin-top: 10px; display: flex; gap: 10px; }
-        button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn-primary { background: var(--vfx-primary); color: #000; }
-        .btn-danger { background: #ff4b2b; color: #fff; }
-        button:hover { opacity: 0.8; }
-        #console { background: #011627; color: #d6deeb; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-        .status-bar { padding: 5px 10px; background: #222; border-radius: 4px; font-size: 0.9rem; }
-        .status-running { color: #f9d423; font-weight: bold; }
+        :root {
+            --primary: #00d2ff;
+            --secondary: #3a7bd5;
+            --bg: #0b0e14;
+            --card: #161b22;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --border: #30363d;
+            --accent: #238636;
+            --danger: #da3633;
+            --warning: #d29922;
+        }
+
+        * {
+            box-sizing: border-box;
+            transition: all 0.15s ease-out;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 280px 1fr 380px;
+            grid-template-rows: auto 1fr;
+            gap: 15px;
+            height: 100%;
+            max-width: 1920px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        header {
+            grid-column: 1 / span 3;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 20px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+
+        /* Panels */
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            padding: 15px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        /* Tabs */
+        .tab-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            background: #0d1117;
+            padding: 4px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+
+        .tab-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border-radius: 5px;
+        }
+
+        .tab-btn.active {
+            background: var(--border);
+            color: var(--primary);
+        }
+
+        /* Form Rendering */
+        .section-title {
+            font-size: 0.7rem;
+            color: var(--primary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 15px 0 8px 0;
+            border-bottom: 1px solid #333;
+            padding-bottom: 3px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 10px;
+        }
+
+        .form-group.full-width {
+            grid-column: span 2;
+        }
+
+        label {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-bottom: 3px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 7px 10px;
+            border-radius: 5px;
+            font-size: 0.85rem;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--primary);
+            outline: none;
+        }
+
+        .switch-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 18px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border);
+            border-radius: 18px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: var(--primary);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(16px);
+        }
+
+        /* Console */
+        #console {
+            background: #0a0c10;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #d1d5db;
+            padding: 10px;
+            flex: 1;
+            overflow-y: auto;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #000;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+
+        .btn-success {
+            background: var(--accent);
+            color: white;
+            margin-top: 10px;
+        }
+
+        .btn-danger {
+            background: rgba(218, 54, 51, 0.2);
+            color: var(--danger);
+            border: 1px solid var(--danger);
+            width: 100%;
+        }
+
+        .status-badge {
+            padding: 3px 10px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border: 1px solid var(--border);
+        }
+
+        .status-running {
+            color: var(--warning);
+            border-color: var(--warning);
+        }
+
+        .status-idle {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
     </style>
 </head>
+
 <body>
-    <div class="header">
-        <h1>CopyAir / NeuralShot - API Validation Tool</h1>
-        <div id="jobStatus" class="status-bar">Status: Loading...</div>
-    </div>
-
-    <div class="grid">
-        <div class="panel">
-            <h2>⚙️ Configuration (params.yaml)</h2>
-            <textarea id="configEditor">Loading configuration...</textarea>
-            <div class="controls">
-                <button class="btn-primary" onclick="loadConfig()">Reload</button>
-                <button class="btn-primary" style="background:#4caf50" onclick="saveConfig()">Save Changes</button>
+    <div class="app-container">
+        <header>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div
+                    style="width:28px; height:28px; background:var(--primary); border-radius:6px; display:grid; place-items:center; color:#000; font-weight:900;">
+                    C</div>
+                <h2 style="font-size: 1.1rem;">CopyAir / Control Center</h2>
             </div>
-        </div>
+            <div id="statusBadge" class="status-badge status-idle">IDLE</div>
+        </header>
 
-        <div class="panel">
-            <h2>🚀 Execution & Real-time Logs</h2>
-            <div id="console" class="panel" style="flex:1; margin-bottom:10px;">Waiting for connection...</div>
-            <div class="controls">
-                <button id="trainBtn" class="btn-primary" onclick="startJob('train')">Start Training</button>
-                <button id="predictBtn" class="btn-primary" onclick="startJob('predict')">Start Inference</button>
-                <button class="btn-danger" onclick="stopJob()">Emergency Stop</button>
+        <!-- Sidebar -->
+        <aside class="panel">
+            <div class="panel-header">
+                <h3>Actions</h3>
             </div>
-        </div>
+            <div class="panel-content">
+                <button class="btn btn-primary" id="trainBtn" onclick="executeJob('train')">Run Training</button>
+                <button class="btn btn-primary" style="background:var(--secondary)" id="predictBtn"
+                    onclick="executeJob('predict')">Inference</button>
+                <button class="btn btn-danger" onclick="stopJob()">Emergency Stop</button>
+
+                <div style="margin-top:20px;">
+                    <label>Environment</label>
+                    <div id="envInfo" style="font-size: 0.75rem; color: var(--text-dim);">Detecting...</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Config -->
+        <main class="panel">
+            <div class="panel-header">
+                <h3>Parameters</h3>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.7rem;"
+                        onclick="syncConfig()">Sync</button>
+                    <button class="btn btn-success" style="padding:4px 8px; font-size:0.7rem; margin:0;"
+                        onclick="saveConfig()">Save</button>
+                </div>
+            </div>
+            <div class="panel-content">
+                <div class="tab-nav" id="tabNav">
+                    <!-- Standard Tabs -->
+                    <button class="tab-btn active" onclick="switchTab('data')">Data</button>
+                    <button class="tab-btn" onclick="switchTab('model')">Model</button>
+                    <button class="tab-btn" onclick="switchTab('training')">Training</button>
+                    <button class="tab-btn" onclick="switchTab('loss')">Loss</button>
+                    <button class="tab-btn" onclick="switchTab('gan')">GAN</button>
+                    <button class="tab-btn" onclick="switchTab('aug')">Aug</button>
+                    <button class="tab-btn" onclick="switchTab('system')">System</button>
+                </div>
+
+                <div id="dynamicForm">
+                    <!-- Dynamic tabs content will be rendered here -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Logs -->
+        <section class="panel">
+            <div class="panel-header">
+                <h3>Console</h3> <button onclick="clearLogs()"
+                    style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:0.7rem;">Clear</button>
+            </div>
+            <div id="console" class="panel-content"></div>
+        </section>
     </div>
 
     <script>
         const API_BASE = "http://localhost:8000/api";
         const WS_URL = "ws://localhost:8000/api/ws/logs";
-        const consoleEl = document.getElementById('console');
-        const configEditor = document.getElementById('configEditor');
-        const statusEl = document.getElementById('jobStatus');
-        let socket;
+        let config = {};
+        let activeTab = 'data';
 
-        function logToConsole(msg) {
-            const line = document.createElement('div');
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            consoleEl.appendChild(line);
+        // Predefined options for select inputs
+        const OPTIONS = {
+            'model.architecture': ['residual_unet', 'basic_unet', 'att_unet', 'vision_transformer'],
+            'model.activation': ['mish', 'relu', 'leaky_relu', 'gelu'],
+            'model.norm_type': ['group', 'batch', 'instance', 'layer'],
+            'training.optimizer.type': ['adamw', 'adam', 'sgd', 'prodigy'],
+            'training.scheduler.type': ['cosine', 'linear', 'onecycle', 'none'],
+            'device': ['cuda', 'cpu', 'mps']
+        };
+
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            const color = type === 'error' ? 'var(--danger)' : (type === 'success' ? 'var(--accent)' : 'var(--text)');
+            div.style.color = color;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            const consoleEl = document.getElementById('console');
+            consoleEl.appendChild(div);
             consoleEl.scrollTop = consoleEl.scrollHeight;
         }
 
-        async function loadConfig() {
+        function clearLogs() { document.getElementById('console').innerHTML = ''; }
+
+        async function syncConfig() {
             try {
                 const res = await fetch(`${API_BASE}/config/`);
-                const data = await res.json();
-                configEditor.value = JSON.stringify(data, null, 2);
-                logToConsole("Configuration loaded successfully.");
-            } catch (err) {
-                logToConsole(`Error loading config: ${err.message}`);
+                config = await res.json();
+                renderTab();
+                log("Configuration synced.", "success");
+            } catch (err) { log("Sync error: " + err.message, "error"); }
+        }
+
+        function switchTab(tabId) {
+            activeTab = tabId;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.innerText.toLowerCase().includes(tabId)));
+            renderTab();
+        }
+
+        function renderTab() {
+            const container = document.getElementById('dynamicForm');
+            container.innerHTML = '';
+
+            let target = {};
+            let schema = [];
+
+            if (activeTab === 'data') {
+                target = config.data || {};
+                schema = [
+                    { key: 'input_dir', label: 'Input Path', type: 'text' },
+                    { key: 'gt_dir', label: 'Ground Truth Path', type: 'text' },
+                    { key: 'frames_dir', label: 'Raw Frames Path', type: 'text' },
+                    { key: 'output_dir', label: 'Output Directory', type: 'text' },
+                    { key: 'models_dir', label: 'Models Directory', type: 'text' }
+                ];
+            } else if (activeTab === 'model') {
+                target = config.model || {};
+                schema = [
+                    { key: 'architecture', label: 'Architecture', type: 'select', opts: OPTIONS['model.architecture'] },
+                    { key: 'base_channels', label: 'Base Channels', type: 'number' },
+                    { key: 'activation', label: 'Activation', type: 'select', opts: OPTIONS['model.activation'] },
+                    { key: 'norm_type', label: 'Normalization', type: 'select', opts: OPTIONS['model.norm_type'] },
+                    { key: 'modern.use_film', label: 'Use FiLM Conditioning', type: 'toggle' },
+                    { key: 'modern.use_adain', label: 'Use AdaIN', type: 'toggle' },
+                    { key: 'smart.use_attention', label: 'Spatial Attention', type: 'toggle' },
+                    { key: 'smart.use_smart_filter', label: 'Smart Filtering', type: 'toggle' }
+                ];
+            } else if (activeTab === 'training') {
+                target = config.training || {};
+                schema = [
+                    { key: 'epochs', label: 'Total Epochs', type: 'number' },
+                    { key: 'batch_size', label: 'Batch Size', type: 'number' },
+                    { key: 'learning_rate', label: 'Learning Rate', type: 'text' },
+                    { key: 'mixed_precision', label: 'Mixed Precision (FP16)', type: 'toggle' },
+                    { key: 'optimizer.type', label: 'Optimizer', type: 'select', opts: OPTIONS['training.optimizer.type'] },
+                    { key: 'scheduler.type', label: 'LR Scheduler', type: 'select', opts: OPTIONS['training.scheduler.type'] },
+                    { key: 'val_interval', label: 'Validation Every N', type: 'number' },
+                    { key: 'save_interval', label: 'Save Every N', type: 'number' }
+                ];
+            } else if (activeTab === 'loss') {
+                target = config.loss || {};
+                schema = Object.keys(target).map(k => ({ key: k, label: k.replace('lambda_', '').toUpperCase(), type: 'number', step: 0.01 }));
+            } else if (activeTab === 'gan') {
+                target = config.gan || {};
+                schema = [
+                    { key: 'enabled', label: 'Enable GAN Training', type: 'toggle' },
+                    { key: 'lambda_gan', label: 'Adversarial Weight', type: 'number', step: 0.001 },
+                    { key: 'lambda_feature_matching', label: 'Feature Matching Weight', type: 'number' },
+                    { key: 'discriminator.n_layers', label: 'Disc. Layers', type: 'number' }
+                ];
+            } else if (activeTab === 'aug') {
+                target = config.augmentation || {};
+                schema = [
+                    { key: 'enabled', label: 'Enable Augmentations', type: 'toggle' },
+                    { key: 'img_size', label: 'Input Resolution', type: 'number' },
+                    { key: 'horizontal_flip_p', label: 'H-Flip Probability', type: 'number', step: 0.1 },
+                    { key: 'rotation_limit', label: 'Rotation Degrees', type: 'number' }
+                ];
+            } else if (activeTab === 'system') {
+                schema = [
+                    { key: 'device', label: 'Compute Device', type: 'select', opts: OPTIONS['device'], path: 'device' },
+                    { key: 'num_workers', label: 'Data Loader Workers', type: 'number', path: 'num_workers' },
+                    { key: 'mlflow.enabled', label: 'Enable MLFlow Tracking', type: 'toggle', path: 'mlflow.enabled' },
+                    { key: 'mlflow.experiment_name', label: 'Experiment Name', type: 'text', path: 'mlflow.experiment_name' }
+                ];
+                target = config; // Root for system
             }
+
+            const grid = document.createElement('div');
+            grid.className = 'form-grid';
+
+            schema.forEach(field => {
+                const group = document.createElement('div');
+                group.className = 'form-group' + (field.type === 'text' ? ' full-width' : '');
+
+                let val = getDeep(target, field.key);
+                if (field.path) val = getDeep(config, field.path);
+
+                if (field.type === 'toggle') {
+                    group.className += ' switch-group';
+                    group.innerHTML = `<label>${field.label}</label><label class="switch"><input type="checkbox" onchange="upd('${field.path || field.key}', this.checked, '${activeTab}')" ${val ? 'checked' : ''}><span class="slider"></span></label>`;
+                } else if (field.type === 'select') {
+                    group.innerHTML = `<label>${field.label}</label><select onchange="upd('${field.path || field.key}', this.value, '${activeTab}')">${field.opts.map(o => `<option value="${o}" ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
+                } else {
+                    group.innerHTML = `<label>${field.label}</label><input type="${field.type}" step="${field.step || 1}" value="${val}" onchange="upd('${field.path || field.key}', this.value, '${activeTab}')">`;
+                }
+                grid.appendChild(group);
+            });
+            container.appendChild(grid);
+        }
+
+        // Deep Get/Set helpers
+        function getDeep(obj, path) {
+            return path.split('.').reduce((o, i) => (o ? o[i] : undefined), obj);
+        }
+        function setDeep(obj, path, val) {
+            const parts = path.split('.');
+            const last = parts.pop();
+            const root = parts.reduce((o, i) => o[i] = o[i] || {}, obj);
+            root[last] = val;
+        }
+
+        function upd(path, val, tab) {
+            // Type conversion
+            if (!isNaN(val) && val !== "" && typeof val !== 'boolean') val = parseFloat(val);
+
+            const fullPath = (tab === 'system' || path.includes('.')) ? path : `${tab}.${path}`;
+            setDeep(config, fullPath, val);
+            console.log("Config updated locally:", fullPath, val);
         }
 
         async function saveConfig() {
             try {
-                const config = JSON.parse(configEditor.value);
                 const res = await fetch(`${API_BASE}/config/`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
                 });
-                const result = await res.json();
-                logToConsole(result.message || "Config updated.");
-            } catch (err) {
-                logToConsole(`Error saving config: ${err.message}. Check JSON format.`);
-            }
+                const data = await res.json();
+                log(data.message, "success");
+            } catch (err) { log("Save failed: " + err.message, "error"); }
         }
 
-        async function startJob(type) {
+        async function executeJob(type) {
             try {
-                logToConsole(`Iniciando ${type}...`);
+                log(`Starting ${type}...`);
                 const res = await fetch(`${API_BASE}/jobs/${type}`, { method: 'POST' });
-                const result = await res.json();
-                if (!res.ok) throw new Error(result.detail || "Error desconocido");
-                logToConsole(result.message);
-                checkStatus();
-            } catch (err) {
-                logToConsole(`Failed to start ${type}: ${err.message}`);
-            }
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail);
+                log(data.message, "success");
+            } catch (err) { log(err.message, "error"); }
         }
 
         async function stopJob() {
             try {
                 const res = await fetch(`${API_BASE}/jobs/stop`, { method: 'POST' });
-                const result = await res.json();
-                logToConsole(result.message);
-            } catch (err) {
-                logToConsole(`Error stopping job: ${err.message}`);
-            }
+                const data = await res.json();
+                log(data.message, "warning");
+            } catch (err) { log(err.message, "error"); }
         }
 
-        async function checkStatus() {
+        function setupWS() {
+            socket = new WebSocket(WS_URL);
+            socket.onopen = () => log("Streaming connection active.", "success");
+            socket.onmessage = (e) => log(e.data);
+            socket.onclose = () => { log("Connection lost. Retrying...", "error"); setTimeout(setupWS, 3000); };
+        }
+
+        async function pollStatus() {
             try {
                 const res = await fetch(`${API_BASE}/jobs/status`);
                 const data = await res.json();
-                statusEl.innerHTML = `Status: <span class="${data.status === 'running' ? 'status-running' : ''}">${data.status.toUpperCase()}</span> ${data.job_type ? `(${data.job_type})` : ''}`;
-            } catch (err) {}
+                const badge = document.getElementById('statusBadge');
+                badge.innerText = data.status.toUpperCase() + (data.job_type ? `: ${data.job_type.toUpperCase()}` : '');
+                badge.className = `status-badge ${data.status === 'running' ? 'status-running' : 'status-idle'}`;
+                document.getElementById('envInfo').innerText = `Device: ${config.device || 'N/A'}\nWorkers: ${config.num_workers || 0}`;
+            } catch (e) { }
         }
 
-        function setupWebSocket() {
-            socket = new WebSocket(WS_URL);
-            socket.onopen = () => logToConsole("CONNECTED TO LOG STREAM (WebSocket)");
-            socket.onmessage = (event) => logToConsole(event.data);
-            socket.onclose = () => {
-                logToConsole("DISCONNECTED FROM LOG STREAM. Retrying in 3s...");
-                setTimeout(setupWebSocket, 3000);
-            };
-            socket.onerror = (err) => logToConsole(`WebSocket Error: ${err.message}`);
-        }
-
-        // Initialize
-        loadConfig();
-        setupWebSocket();
-        setInterval(checkStatus, 2000);
+        // Init
+        syncConfig();
+        setupWS();
+        setInterval(pollStatus, 2000);
     </script>
 </body>
+
 </html>

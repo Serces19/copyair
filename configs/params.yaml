@@ -26,7 +26,7 @@ model:
     attention_type: self
     cond_dim: 128
 training:
-  epochs: 2501
+  epochs: 2503
   batch_size: 4
   learning_rate: 2e-4
   weight_decay: 1e-4
