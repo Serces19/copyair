@@ -30,6 +30,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 
     except WebSocketDisconnect:
         print("WebSocket client disconnected")
+    except asyncio.CancelledError:
+        # Quietly handle shutdown
+        pass
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:

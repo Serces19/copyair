@@ -248,11 +248,17 @@ Implementación de una plataforma SaaS serverless para entrenamiento e inferenci
 - [ ] 15. Final checkpoint - Production ready
   - Ensure all tests pass, ask the user if questions arise.
 
-## Notes
+## Local Development & Access (NeuralShot Core)
 
-- Tasks marked with `*` are optional and can be skipped for faster MVP
-- Each task references specific requirements for traceability
-- Checkpoints ensure incremental validation
-- Property tests validate universal correctness properties with minimum 100 iterations
-- Unit tests validate specific examples and edge cases
-- Architecture is optimized for ~$0 idle costs and ~$45-60/month at 100 active users
+Para pruebas locales del core de entrenamiento e inferencia:
+
+- **API Terminal:** `uv run uvicorn src.api.main:app --reload`
+- **Control Center UI:** [http://localhost:8000/](http://localhost:8000/)
+- **Swagger Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Status: Core Integration Ready
+- [x] FastAPI layer for `params.yaml`
+- [x] Professional VFX Control Center UI
+- [x] WebSocket log streaming
+- [x] Job management (Subprocesses)
+- [x] Unified "One-Click" Launcher (`run_control_center.py`)

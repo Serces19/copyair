@@ -60,3 +60,20 @@ Para mantener este archivo limpio, las especificaciones profundas fueron movidas
 ---
 ### 🌐 Nexo con el Frontend 
 Actualmente, CopyAir actúa como el núcleo ML backend. La interfaz de usuario recae en el sistema **ScopeAir** ubicado en un repositorio separado (enfoque Polyrepo). Futuras iteraciones sustituirán la edición manual de `params.yaml` con la ingesta automatizada por una API local FastAPI (Desarrollo) y endpoints serverless API Gateway en AWS (Production).
+## 🚀 Quick Start: NeuralShot Control Center
+
+Para ejecutar el núcleo de entrenamiento e inferencia con la nueva interfaz profesional:
+
+1. **Activar el entorno:**
+   ```bash
+   .venv\Scripts\activate
+   ```
+
+2. **Lanzar el Centro de Control:**
+   ```bash
+   python run_control_center.py
+   ```
+
+Este comando iniciará el servidor API y abrirá automáticamente tu navegador en la interfaz profesional.
+
+Desde aquí puedes gestionar todos los hiperparámetros de `configs/params.yaml`, lanzar entrenamientos y ver los logs en tiempo real.
