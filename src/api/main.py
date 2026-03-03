@@ -11,10 +11,12 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Permitir CORS para desarrollo frontend (React/Vite)
+# Configuración de CORS
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción restringir a dominios específicos
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

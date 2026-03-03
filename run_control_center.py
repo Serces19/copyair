@@ -16,12 +16,17 @@ def open_browser():
 
 if __name__ == "__main__":
     print("--- CopyAir / NeuralShot Control Center ---")
-    print("Iniciando API y servicio UI...")
     
-    # Lanzar el navegador en un hilo separado
-    threading.Thread(target=open_browser, daemon=True).start()
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", 8000))
+    
+    # Solo abrir navegador si estamos en localhost o se solicita explícitamente
+    if host in ["127.0.0.1", "localhost", "0.0.0.0"] and os.getenv("HEADLESS") != "1":
+        print(f"Iniciando API y servicio UI en http://{host}:{port}...")
+        threading.Thread(target=open_browser, daemon=True).start()
+    else:
+        print(f"Servidor iniciado en modo remoto/headless en http://{host}:{port}")
     
     # Iniciar el servidor Uvicorn
-    # Importamos la app aquí para evitar problemas de contexto en hilos
     from src.api.main import app
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host=host, port=port, log_level="info")

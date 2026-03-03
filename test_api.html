@@ -351,8 +351,8 @@
     </div>
 
     <script>
-        const API_BASE = "http://localhost:8000/api";
-        const WS_URL = "ws://localhost:8000/api/ws/logs";
+        const API_BASE = `${window.location.protocol}//${window.location.host}/api`;
+        const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/logs`;
         let config = {};
         let activeTab = 'data';
 
