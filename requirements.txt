@@ -30,5 +30,6 @@ isort
 
 # Backend UI
 fastapi
-uvicorn
+uvicorn[standard]
+websockets
 python-multipart
