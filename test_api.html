@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CopyAir API Tester</title>
+    <style>
+        :root { --vfx-primary: #00d2ff; --vfx-bg: #121212; --vfx-card: #1e1e1e; --vfx-text: #e0e0e0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--vfx-bg); color: var(--vfx-text); margin: 0; padding: 20px; display: flex; flex-direction: column; height: 95vh; gap: 20px; }
+        .header { border-bottom: 2px solid var(--vfx-primary); padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; flex: 1; min-height: 0; }
+        .panel { background: var(--vfx-card); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; border: 1px solid #333; }
+        h2 { margin-top: 0; color: var(--vfx-primary); font-size: 1.2rem; }
+        textarea { flex: 1; background: #000; color: #0f0; border: 1px solid #444; padding: 10px; font-family: 'Courier New', Courier, monospace; resize: none; border-radius: 4px; }
+        .controls { margin-top: 10px; display: flex; gap: 10px; }
+        button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-primary { background: var(--vfx-primary); color: #000; }
+        .btn-danger { background: #ff4b2b; color: #fff; }
+        button:hover { opacity: 0.8; }
+        #console { background: #011627; color: #d6deeb; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+        .status-bar { padding: 5px 10px; background: #222; border-radius: 4px; font-size: 0.9rem; }
+        .status-running { color: #f9d423; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>CopyAir / NeuralShot - API Validation Tool</h1>
+        <div id="jobStatus" class="status-bar">Status: Loading...</div>
+    </div>
+
+    <div class="grid">
+        <div class="panel">
+            <h2>⚙️ Configuration (params.yaml)</h2>
+            <textarea id="configEditor">Loading configuration...</textarea>
+            <div class="controls">
+                <button class="btn-primary" onclick="loadConfig()">Reload</button>
+                <button class="btn-primary" style="background:#4caf50" onclick="saveConfig()">Save Changes</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>🚀 Execution & Real-time Logs</h2>
+            <div id="console" class="panel" style="flex:1; margin-bottom:10px;">Waiting for connection...</div>
+            <div class="controls">
+                <button id="trainBtn" class="btn-primary" onclick="startJob('train')">Start Training</button>
+                <button id="predictBtn" class="btn-primary" onclick="startJob('predict')">Start Inference</button>
+                <button class="btn-danger" onclick="stopJob()">Emergency Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:8000/api";
+        const WS_URL = "ws://localhost:8000/api/ws/logs";
+        const consoleEl = document.getElementById('console');
+        const configEditor = document.getElementById('configEditor');
+        const statusEl = document.getElementById('jobStatus');
+        let socket;
+
+        function logToConsole(msg) {
+            const line = document.createElement('div');
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch(`${API_BASE}/config/`);
+                const data = await res.json();
+                configEditor.value = JSON.stringify(data, null, 2);
+                logToConsole("Configuration loaded successfully.");
+            } catch (err) {
+                logToConsole(`Error loading config: ${err.message}`);
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                const config = JSON.parse(configEditor.value);
+                const res = await fetch(`${API_BASE}/config/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await res.json();
+                logToConsole(result.message || "Config updated.");
+            } catch (err) {
+                logToConsole(`Error saving config: ${err.message}. Check JSON format.`);
+            }
+        }
+
+        async function startJob(type) {
+            try {
+                logToConsole(`Iniciando ${type}...`);
+                const res = await fetch(`${API_BASE}/jobs/${type}`, { method: 'POST' });
+                const result = await res.json();
+                if (!res.ok) throw new Error(result.detail || "Error desconocido");
+                logToConsole(result.message);
+                checkStatus();
+            } catch (err) {
+                logToConsole(`Failed to start ${type}: ${err.message}`);
+            }
+        }
+
+        async function stopJob() {
+            try {
+                const res = await fetch(`${API_BASE}/jobs/stop`, { method: 'POST' });
+                const result = await res.json();
+                logToConsole(result.message);
+            } catch (err) {
+                logToConsole(`Error stopping job: ${err.message}`);
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/jobs/status`);
+                const data = await res.json();
+                statusEl.innerHTML = `Status: <span class="${data.status === 'running' ? 'status-running' : ''}">${data.status.toUpperCase()}</span> ${data.job_type ? `(${data.job_type})` : ''}`;
+            } catch (err) {}
+        }
+
+        function setupWebSocket() {
+            socket = new WebSocket(WS_URL);
+            socket.onopen = () => logToConsole("CONNECTED TO LOG STREAM (WebSocket)");
+            socket.onmessage = (event) => logToConsole(event.data);
+            socket.onclose = () => {
+                logToConsole("DISCONNECTED FROM LOG STREAM. Retrying in 3s...");
+                setTimeout(setupWebSocket, 3000);
+            };
+            socket.onerror = (err) => logToConsole(`WebSocket Error: ${err.message}`);
+        }
+
+        // Initialize
+        loadConfig();
+        setupWebSocket();
+        setInterval(checkStatus, 2000);
+    </script>
+</body>
+</html>

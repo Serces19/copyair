@@ -33,4 +33,5 @@ dependencies = [
     "transformers>=4.57.3",
     "uvicorn>=0.40.0",
     "wandb>=0.23.1",
+    "websockets>=16.0",
 ]

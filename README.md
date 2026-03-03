@@ -1,69 +1,18 @@
-# CopyAir - Image-to-Image Translation
+# CopyAir / NeuralShot Platform
 
-## 📋 Descripción del Proyecto
+CopyAir es una arquitectura profesional para entrenamiento iterativo y escalable de modelos de **Image-to-Image translation**, especializados en VFX y De-aging. Permite escalar desde scripts de experimentación locales hasta una orquestación en la nube robusta y costo-eficiente.
 
-CopyAir es una aplicación de **Image-to-Image Translation** que utiliza una red U-Net profunda para aplicar transformaciones visuales (como rejuvenecimiento facial) a través de los frames de un video. El proyecto transforma un notebook de Jupyter en una arquitectura profesional, escalable y reproducible.
-
-### Características principales:
-- ✅ Arquitectura U-Net personalizada con skip connections
-- ✅ Pérdida híbrida (L1 + SSIM + Perceptual)
-- ✅ Datos organizados con versionado
-- ✅ Configuración flexible mediante YAML
-- ✅ Entrenamiento y validación automatizados
-- ✅ Inferencia en video completo
-- ✅ Pruebas unitarias incluidas
-
----
-
-## 📁 Estructura del Proyecto
-
-```
-copyair/
-├── data/
-│   ├── 01_raw/              # Videos originales sin procesar
-│   ├── 02_interim/          # Frames extraídos, archivos temporales
-│   └── 03_processed/        # Datos listos para entrenamiento
-│       ├── input/           # Imágenes de entrada
-│       └── ground_truth/    # Imágenes de referencia (objetivo)
-│
-├── src/
-│   ├── __init__.py
-│   ├── data/
-│   │   ├── dataset.py       # PairedImageDataset, VideoFrameDataset
-│   │   └── augmentations.py # Transformaciones (albumentations)
-│   │
-│   ├── models/
-│   │   ├── unet.py          # Arquitectura U-Net
-│   │   └── losses.py        # L1, SSIM, Perceptual, HybridLoss
-│   │
-│   └── training/
-│       ├── train.py         # Loop de entrenamiento
-│       └── inference.py     # Predicción en videos
-│
-├── notebooks/
-│   └── SergioCespedes_TrabajoFinal.ipynb  # Notebook original
-│
-├── configs/
-│   └── params.yaml          # Hiperparámetros centralizados
-│
-├── scripts/
-│   ├── train.py             # Script de entrenamiento
-│   └── predict.py           # Script de inferencia
-│
-├── models/                  # Checkpoints guardados
-├── output_inference/        # Videos/frames generados
-├── tests/                   # Pruebas unitarias
-│
-├── requirements.txt         # Dependencias Python
-├── .gitignore              # Archivos ignorados por Git
-└── README.md               # Este archivo
-```
-
----
+## 📋 Características Principales
+- **Arquitectura Modular:** Soporta U-Net clásica, U-Net residual y diseños modernos inspirados en modelos de de-aging SOTA.
+- **Pérdida Híbrida:** Combinación de L1, SSIM, y Perceptual Loss explícitamente diseñada para preservar textura generada para postproducción.
+- **Configuración Centralizada:** Todo factor de influencia es gobernado por `configs/params.yaml`.
+- **Inferencia en batch y video:** Pipeline optimizado para inferencia rápida por frames.
+- **Integración con MLflow:** Seguimiento estricto y ordenado de experimentos.
 
 ## 🚀 Inicio Rápido
 
-### 1. Instalación
+### 1. Instalación usando `uv`
+Se prefiere fuertemente el uso de `uv` para control de paquetes (especialmente en entornos Windows).
 
 ```bash
 # Clonar el repositorio
@@ -76,212 +25,38 @@ uv venv .venv
 # Activar entorno (Windows)
 .venv\Scripts\activate
 
-# Activar entorno (Linux/Mac)
-source .venv/bin/activate
-
-# Instalar dependencias desde requirements.txt
+# Instalar dependencias
 uv pip install -r requirements.txt
-
-# Iniciar MLFlow
-mlflow server --host 0.0.0.0 --port 5000 --allowed-hosts "*"
 ```
 
-### 2. Preparar Datos
-
-Organiza tus datos en `data/03_processed/`:
-
-```
-data/03_processed/
-├── input/
-│   ├── frame_1.jpg
-│   ├── frame_2.jpg
-│   └── ...
-└── ground_truth/
-    ├── frame_1.jpg
-    ├── frame_2.jpg
-    └── ...
-```
-
-### 3. Configurar Parámetros
-
-Edita `configs/params.yaml`:
-
-```yaml
-training:
-  epochs: 50
-  batch_size: 8
-  learning_rate: 0.001
-```
-
-### 4. Entrenar Modelo
+### 2. Entrenar Modelo
+Asegúrate de preparar y emparejar tus imágenes en `data/03_processed/input/` y `data/03_processed/ground_truth/`. Configura el archivo `configs/params.yaml` e inicia el ciclo:
 
 ```bash
-python scripts/train.py --config configs/params.yaml --device cuda
+uv run scripts/train.py --config configs/params.yaml --device cuda
 ```
 
-### 5. Inferencia en Video
-
+### 3. Inferencia
+Aplica tu modelo a un video o extrae y empalma frames al vuelo:
 ```bash
-# Aplicar modelo y generar video de salida
-# El script detecta automáticamente la arquitectura del modelo desde el checkpoint
-python scripts/predict.py --model models/best_model_unet.pth --video data/01_raw/input.mov --output output6.mp4 --native-resolution --lossless
-python scripts/predict.py --model models/best_model_unet.pth --video data/01_raw/input.mov --output output8.mp4 --native-resolution --lossless --tiled --tile-size 512 --overlap 64
+uv run scripts/predict.py --model models/best_model_unet.pth --video data/01_raw/input.mov --output output.mp4 --native-resolution --lossless
 ```
-
-**🎯 Detección Automática de Arquitectura**: El script `predict.py` ahora detecta automáticamente la arquitectura del modelo (UNet, NAFNet, ConvNeXt, etc.) desde los metadatos guardados en el checkpoint. No necesitas especificar la arquitectura manualmente.
-
-#### Convertir Modelos Antiguos
-
-Si tienes un modelo entrenado con la versión anterior (sin metadatos), puedes convertirlo:
-
+Para inferencia masiva y testeando resultados frente a múltilpes iteraciones alojadas en MLflow:
 ```bash
-# Convertir checkpoint antiguo al nuevo formato con metadatos
-python scripts/convert_checkpoint.py --model models/old_model.pth --architecture nafnet --output models/new_model.pth
+uv run scripts/batch_inference.py --input-dir data/01_raw/input --output-dir output_inference --device cuda
 ```
 
----
+## 📚 Documentación Adicional
 
-## 📊 Archivos Principales
+Para mantener este archivo limpio, las especificaciones profundas fueron movidas a la carpeta `docs/`:
 
-### `src/data/dataset.py`
-- `PairedImageDataset`: Carga pares de imágenes (entrada/objetivo)
-- `VideoFrameDataset`: Carga frames para inferencia
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md): Detalles de la arquitectura de código, módulos internos y debuggear entrenamiento.
+- [`docs/BATCH_INFERENCE.md`](docs/BATCH_INFERENCE.md): Guía de descubrimiento, descarga automática e inferencia global para docenas de runs utilizando la API de MLflow.
+- [`docs/GIT_SETUP.md`](docs/GIT_SETUP.md): Estrategia de ramas y control de versiones.
+- [`docs/PROJECT_SUMMARY.md`](docs/PROJECT_SUMMARY.md): Hitos fundacionales e históricos.
 
-### `src/models/unet.py`
-- `ConvBlock`: Bloque convolucional básico
-- `DownBlock`: Downsampling con max pooling
-- `UpBlock`: Upsampling con skip connections
-- `UNet`: Arquitectura completa
-
-### `src/models/losses.py`
-- `L1Loss`: Pérdida L1
-- `SSIMLoss`: Índice de similitud estructural
-- `PerceptualLoss`: Pérdida basada en características
-- `HybridLoss`: Combinación ponderada
-
-### `src/training/train.py`
-- `train_epoch()`: Loop de entrenamiento
-- `validate()`: Validación
-- `compute_metrics()`: Métricas (MSE, PSNR, SSIM)
-
-### `src/training/inference.py`
-- `predict_frame()`: Predicción de frame individual
-- `predict_on_video()`: Procesamiento de video completo
-- `extract_frames_from_video()`: Extrae frames
+> Nota: Los documentos en `.kiro/specs/` pertenecen a las especificaciones teóricas para la arquitectura Cloud Native.
 
 ---
-
-## ⚙️ Configuración (params.yaml)
-
-```yaml
-# Parámetros principales
-model:
-  base_channels: 64      # Canales iniciales
-  
-training:
-  epochs: 50             # Número de épocas
-  batch_size: 8          # Tamaño del batch
-  learning_rate: 0.001   # Tasa de aprendizaje
-  val_split: 0.2         # 20% para validación
-  
-loss:
-  lambda_l1: 0.6         # Peso L1
-  lambda_ssim: 0.2       # Peso SSIM
-  lambda_perceptual: 0.2 # Peso Perceptual
-
-device: "cuda"           # GPU o CPU
-```
-
----
-
-## 🧪 Pruebas
-
-```bash
-# Ejecutar todas las pruebas
-pytest tests/ -v
-
-# Pruebas específicas
-pytest tests/test_dataset.py -v
-pytest tests/test_models.py -v
-```
-
----
-
-## 📈 Monitoreo de Experimentos
-
-### Usar MLflow (opcional)
-
-```bash
-# Instalar
-pip install mlflow
-
-# Habilitar en params.yaml
-mlflow:
-  enabled: true
-  experiment_name: "copyair"
-
-# Ejecutar UI
-mlflow ui
-```
-
----
-
-## 🐳 Containerización (Docker)
-
-```dockerfile
-FROM pytorch/pytorch:2.1.0-cuda12.1-runtime-ubuntu22.04
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-CMD ["python", "scripts/train.py"]
-```
-
-Construir y ejecutar:
-
-```bash
-docker build -t copyair .
-docker run --gpus all copyair
-```
-
----
-
-## 📝 Notas Importantes
-
-1. **Datos**: Asegúrate que input/ y ground_truth/ tengan archivos con los mismos nombres
-2. **GPU**: Usa `--device cuda` para entrenamientos más rápidos
-3. **Memoria**: Para imágenes grandes, reduce `batch_size` en params.yaml
-4. **Early Stopping**: Se detiene si no mejora después de N épocas
-
----
-
-## 🤝 Contribuciones
-
-Las contribuciones son bienvenidas. Abre un Issue o Pull Request.
-
----
-
-## 📄 Licencia
-
-MIT License - Ver LICENSE para detalles
-
----
-
-## 👤 Autor
-
-**Sergio Céspedes** - Trabajo Final
-
----
-
-## 🔗 Recursos Adicionales
-
-- [PyTorch Documentation](https://pytorch.org/docs/)
-- [U-Net Paper](https://arxiv.org/abs/1505.04597)
-- [Albumentations](https://albumentations.ai/)
-
----
-
-**¡Feliz entrenamiento! 🚀**
+### 🌐 Nexo con el Frontend 
+Actualmente, CopyAir actúa como el núcleo ML backend. La interfaz de usuario recae en el sistema **ScopeAir** ubicado en un repositorio separado (enfoque Polyrepo). Futuras iteraciones sustituirán la edición manual de `params.yaml` con la ingesta automatizada por una API local FastAPI (Desarrollo) y endpoints serverless API Gateway en AWS (Production).

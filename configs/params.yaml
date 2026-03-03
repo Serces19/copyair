@@ -1,149 +1,96 @@
-# CopyAir - Image-to-Image Translation Configuration
-
-# Parámetros de entrada/salida
 data:
-  input_dir: "data/03_processed/input_comic"
-  gt_dir: "data/03_processed/gt_comic"
-  frames_dir: "data/01_raw/input"
-  output_dir: "output_inference"
-  models_dir: "models"
-
-# Parámetros del modelo
+  input_dir: data/03_processed/input_comic
+  gt_dir: data/03_processed/gt_comic
+  frames_dir: data/01_raw/input
+  output_dir: output_inference
+  models_dir: models
 model:
-  # Arquitecturas disponibles:
-  # - basic_unet: U-Net clásica, simple y limpia.
-  # - smart_unet: U-Net mejorada con opciones configurables (Attention, Smart Filter).
-  # - residual_unet: U-Net con Global Residual y ResBlocks.
-  # - modern_unet: SOTA 2025 VFX Architecture (FiLM, AdaIN, Attention, Multi-Head).
-  
-  architecture: "residual_unet" 
-  
-  # Parámetros Generales
+  architecture: residual_unet
   in_channels: 3
   out_channels: 3
   base_channels: 64
-  
-  # Input Map Support (Solo ModernUNet)
-  input_map_channels: 0  # Canales extra para mascaras, depth, etc.
-  
-  # Configuración de Bloques
-  norm_type: "group"    # batch, group, instance, none
-  activation: "mish"    # relu, gelu, silu, mish, leakyrelu
-  groups: 32            # Para GroupNorm
-  dropout_p: 0.0
-  
-  # --- Configuración Específica por Modelo ---
-  
-  # SmartUNet Options
+  input_map_channels: 0
+  norm_type: group
+  activation: mish
+  groups: 32
+  dropout_p: 0
   smart:
     use_attention: false
     use_smart_filter: false
-    drop_skip_prob: 0.0
-  
-  # ResidualUNet Options
+    drop_skip_prob: 0
   residual:
     use_dilated_bottleneck: true
-  
-  # ModernUNet Options (VFX)
   modern:
-    use_film: true       # Feature-wise Linear Modulation
-    use_adain: false     # Adaptive Instance Norm
-    attention_type: "self" # self (bottleneck), none
-    cond_dim: 128        # Dimensión del vector de condicionamiento (si usa FiLM)
-
-# Parámetros de entrenamiento
+    use_film: true
+    use_adain: false
+    attention_type: self
+    cond_dim: 128
 training:
-  epochs: 2500
+  epochs: 2501
   batch_size: 4
   learning_rate: 2e-4
   weight_decay: 1e-4
-  
-  # Memory Optimization
   mixed_precision: true
   gradient_accumulation_steps: 1
   clear_cache_every_n_epochs: 10
-  
-  # Optimizador
   optimizer:
-    type: "adamw"
+    type: adamw
     beta1: 0.9
     beta2: 0.999
     momentum: 0.9
-  
-  # Learning Rate Scheduler
   scheduler:
-    type: "cosine"
+    type: cosine
     params:
       T_max: 5000
       eta_min: 1e-5
-  
-  # Validación
   val_split: 0
   val_interval: 25
   val_samples: 4
   viz_interval: 250
-  
-  # Checkpoint
   save_interval: 500
   early_stopping_patience: 1000
-
-# Parámetros de pérdida
 loss:
-  lambda_l1: 0.0
-  lambda_ssim: 0.0
+  lambda_l1: 0
+  lambda_ssim: 0
   lambda_perceptual: 0.8
   lambda_laplacian: 0.1
-  lambda_ffl: 0.0
-  lambda_dreamsim: 0.0
+  lambda_ffl: 0
+  lambda_dreamsim: 0
   lambda_dino: 0.2
   lambda_charbonnier: 0.2
-  lambda_sobel: 0.0
-  lambda_multiscale: 0.0
-
-# Generador Adversarial
+  lambda_sobel: 0
+  lambda_multiscale: 0
 gan:
   enabled: false
   lambda_gan: 0.01
-  lambda_feature_matching: 10.0
+  lambda_feature_matching: 10
   discriminator:
     lr: 1e-4
     n_layers: 3
-
-# Masked Loss
 masked_loss:
   enabled: false
   threshold: 0.05
   dilation_kernel: 5
   blur_kernel: 5
-
-# Aumentación de datos
 augmentation:
   enabled: false
   img_size: 512
-  horizontal_flip_p: 0.0
-  vertical_flip_p: 0.0
+  horizontal_flip_p: 0
+  vertical_flip_p: 0
   rotation_limit: 0
-  gaussian_noise_p: 0.0
+  gaussian_noise_p: 0
   gaussian_blur_p: 0.1
   color_jitter_p: 0.1
-
-# Hardware
-device: "cuda"
-num_workers: 0 # Windows a veces falla con >0
+device: cuda
+num_workers: 0
 pin_memory: true
-
-# Logging
 logging:
-  level: "INFO"
-  log_dir: "logs"
-
-# MLflow Tracking
+  level: INFO
+  log_dir: logs
 mlflow:
   enabled: true
-  experiment_name: "copyair_experiments_comic"
-  tracking_uri: "mlruns"
-
-# Inferencia
+  experiment_name: copyair_experiments_comic
+  tracking_uri: mlruns
 inference:
   target_fps: 24
   frame_sample_rate: 1
