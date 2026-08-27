@@ -1,50 +1,76 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 
-# Venv
+# Environments (venv / uv)
+.venv/
 venv/
 env/
 ENV/
+.env
+.env.local
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# Data
-data/01_raw/
-data/02_interim/
-data/03_processed/
-
-# Models
-models/*.pth
-models/*.pt
-
-# Output
-output_inference/
-logs/
-
-# OS
 .DS_Store
 Thumbs.db
 
-# MLflow
+# Datasets & Raw/Processed Data
+data/01_raw/
+data/02_interim/
+data/03_processed/
+data/*
+
+# Models & Weights
+models/**/*.pth
+models/**/*.pt
+models/**/*.bin
+models/**/*.onnx
+models/*.pth
+models/*.pt
+*.pth
+*.pt
+*.onnx
+
+# Outputs & Inference
+output_inference/
+logs/
+*.log
+
+# Databases & Experiment Tracking
+*.db
+*.sqlite
+*.sqlite3
+mlflow.db
 mlruns/
 .mlflow
+wandb/
 
-# DVC
-.dvc
-.dvc.yaml
+# Media & Archives
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.zip
+*.tar
+*.tar.gz
+*.7z
 
-# Jupyter
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Checkpoints
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Misc
-*.log
-.env
-.env.local
+# DVC
+.dvc/
+.dvc.yaml

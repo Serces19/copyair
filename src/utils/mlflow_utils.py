@@ -14,15 +14,21 @@ class MLflowLogger:
         self.active_run = None
         
         if self.enabled:
-            tracking_uri = config.get('mlflow', {}).get('tracking_uri', None)
-            if tracking_uri:
-                # Force setting the tracking URI from config to avoid Env Var conflicts if desired
-                # Or just respect it. But here we want to ensure it works.
-                mlflow.set_tracking_uri(tracking_uri)
-                logger.info(f"MLflow Tracking URI set to: {tracking_uri}")
+            tracking_uri = config.get('mlflow', {}).get('tracking_uri', 'sqlite:///mlflow.db')
+            if not tracking_uri or tracking_uri.startswith('http://localhost'):
+                tracking_uri = 'sqlite:///mlflow.db'
                 
-            experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
-            mlflow.set_experiment(experiment_name)
+            try:
+                mlflow.set_tracking_uri(tracking_uri)
+                logger.info(f"MLflow Tracking URI configurado: {tracking_uri}")
+                experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
+                mlflow.set_experiment(experiment_name)
+            except Exception as e:
+                logger.warning(f"No se pudo conectar a {tracking_uri}: {e}. Usando tracking local ./mlruns")
+                mlflow.set_tracking_uri("./mlruns")
+                experiment_name = config.get('mlflow', {}).get('experiment_name', 'copyair')
+                mlflow.set_experiment(experiment_name)
+
 
     def start_run(self, run_name: Optional[str] = None):
         if not self.enabled:

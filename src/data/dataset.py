@@ -30,7 +30,7 @@ class PairedImageDataset(Dataset):
         input_dir: str, 
         gt_dir: str,
         transform: Optional[Callable] = None,
-        img_format: str = "png",
+        img_format: Optional[str] = None,
         mask_config: Optional[dict] = None
     ):
         """
@@ -38,23 +38,48 @@ class PairedImageDataset(Dataset):
             input_dir: Ruta al directorio con imágenes de entrada
             gt_dir: Ruta al directorio con imágenes ground truth
             transform: Transformaciones a aplicar (albumentations)
-            img_format: Formato de imagen (jpg, png, etc.)
+            img_format: Opcional. Formato de imagen específico o None para detectar todos (.png, .jpg, .jpeg, .webp)
             mask_config: Configuración para máscara dinámica (enabled, threshold, dilation, blur)
         """
-        self.input_dir = input_dir
-        self.gt_dir = gt_dir
+        self.input_dir = str(input_dir)
+        self.gt_dir = str(gt_dir)
         self.transform = transform
         self.img_format = img_format
         self.mask_config = mask_config or {'enabled': False}
         
-        # Cargar lista de archivos
+        if not os.path.exists(self.input_dir):
+            raise FileNotFoundError(f"Directorio de entrada no encontrado: {self.input_dir}")
+        if not os.path.exists(self.gt_dir):
+            raise FileNotFoundError(f"Directorio de Ground Truth no encontrado: {self.gt_dir}")
+
+        valid_exts = (f".{img_format.lower()}",) if img_format else ('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff')
+        
+        # Cargar lista de archivos de entrada
+        all_input_files = [
+            f for f in os.listdir(self.input_dir)
+            if any(f.lower().endswith(ext) for ext in valid_exts)
+        ]
+        
+        # Filtrar únicamente los pares coincidentes que existen en ambos directorios
         self.img_files = sorted([
-            f for f in os.listdir(input_dir) 
-            if f.endswith(f".{img_format}")
+            f for f in all_input_files
+            if os.path.exists(os.path.join(self.gt_dir, f))
         ])
         
         if len(self.img_files) == 0:
-            raise ValueError(f"No se encontraron imágenes en {input_dir}")
+            gt_files = os.listdir(self.gt_dir) if os.path.exists(self.gt_dir) else []
+            raise ValueError(
+                f"No se encontraron pares coincidentes entre:\n"
+                f"  Input: {self.input_dir} ({len(all_input_files)} imágenes)\n"
+                f"  GT:    {self.gt_dir} ({len(gt_files)} imágenes)\n"
+                f"Asegúrate de que los nombres de archivo en 'input/' y 'gt/' sean idénticos."
+            )
+        
+        # Reportar si hay imágenes sin par
+        if len(self.img_files) < len(all_input_files):
+            diff = len(all_input_files) - len(self.img_files)
+            print(f"[Aviso] Se ignoraron {diff} imágenes en '{self.input_dir}' que no tienen par correspondiente en '{self.gt_dir}'.")
+
     
     def __len__(self) -> int:
         return len(self.img_files)
@@ -222,13 +247,21 @@ class VideoFrameDataset(Dataset):
             frames_dir: Ruta al directorio con frames extraídos
             transform: Transformaciones a aplicar
         """
-        self.frames_dir = frames_dir
+        self.frames_dir = str(frames_dir)
         self.transform = transform
         
+        if not os.path.exists(self.frames_dir):
+            raise FileNotFoundError(f"Directorio de frames no encontrado: {self.frames_dir}")
+
+        valid_exts = ('.jpg', '.png', '.jpeg', '.webp', '.bmp', '.tiff')
         self.frame_files = sorted([
-            f for f in os.listdir(frames_dir)
-            if f.lower().endswith(('.jpg', '.png', '.jpeg'))
+            f for f in os.listdir(self.frames_dir)
+            if any(f.lower().endswith(ext) for ext in valid_exts)
         ])
+        
+        if len(self.frame_files) == 0:
+            raise ValueError(f"No se encontraron frames de imagen en {self.frames_dir}")
+
     
     def __len__(self) -> int:
         return len(self.frame_files)

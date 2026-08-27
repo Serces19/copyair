@@ -84,7 +84,7 @@ class ResBlock(nn.Module):
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
         
         self.shortcut = nn.Identity()
-        if in_ch != out_ch or use_1x1:
+        if in_ch != out_ch:
             self.shortcut = nn.Conv2d(in_ch, out_ch, 1, bias=False)
 
     def forward(self, x):

@@ -1,34 +1,21 @@
 data:
-  input_dir: data/03_processed/input_comic
-  gt_dir: data/03_processed/gt_comic
-  frames_dir: data/01_raw/input
-  output_dir: output_inference
+  input_dir: K:/Estudios/Maestria Machine Learning/Tesis/datasets/deaging/input
+  gt_dir: K:/Estudios/Maestria Machine Learning/Tesis/datasets/deaging/gt
+  frames_dir: K:/Estudios/Maestria Machine Learning/Tesis/datasets/deaging/extracted_frames
+  output_dir: output_inference/deaging
   models_dir: models
+
 model:
-  architecture: residual_unet
+  architecture: nafnet
+  size: base
   in_channels: 3
   out_channels: 3
-  base_channels: 64
-  input_map_channels: 0
-  norm_type: group
-  activation: mish
-  groups: 32
-  dropout_p: 0
-  smart:
-    use_attention: false
-    use_smart_filter: false
-    drop_skip_prob: 0
-  residual:
-    use_dilated_bottleneck: true
-  modern:
-    use_film: true
-    use_adain: false
-    attention_type: self
-    cond_dim: 128
+  dropout_p: 0.05
+
 training:
-  epochs: 2503
+  epochs: 1000
   batch_size: 4
-  learning_rate: 2e-4
+  learning_rate: 0.001
   weight_decay: 1e-4
   mixed_precision: true
   gradient_accumulation_steps: 1
@@ -37,29 +24,29 @@ training:
     type: adamw
     beta1: 0.9
     beta2: 0.999
-    momentum: 0.9
   scheduler:
     type: cosine
     params:
-      T_max: 5000
-      eta_min: 1e-5
+      T_max: 1000
+      eta_min: 1e-6
   val_split: 0
-  val_interval: 25
+  val_interval: 50
   val_samples: 4
-  viz_interval: 250
-  save_interval: 500
-  early_stopping_patience: 1000
+  viz_interval: 100
+  save_interval: 250
+  early_stopping_patience: 500
+
 loss:
-  lambda_l1: 0
-  lambda_ssim: 0
+  lambda_l1: 0.0
+  lambda_charbonnier: 0.2
   lambda_perceptual: 0.8
   lambda_laplacian: 0.1
-  lambda_ffl: 0
-  lambda_dreamsim: 0
   lambda_dino: 0.2
-  lambda_charbonnier: 0.2
-  lambda_sobel: 0
-  lambda_multiscale: 0
+  lambda_ssim: 0.0
+  lambda_ffl: 0.0
+  lambda_dreamsim: 0.0
+  lambda_sobel: 0.0
+
 gan:
   enabled: false
   lambda_gan: 0.01
@@ -67,30 +54,36 @@ gan:
   discriminator:
     lr: 1e-4
     n_layers: 3
+
 masked_loss:
   enabled: false
   threshold: 0.05
   dilation_kernel: 5
   blur_kernel: 5
+
 augmentation:
-  enabled: false
+  enabled: true
   img_size: 512
-  horizontal_flip_p: 0
-  vertical_flip_p: 0
-  rotation_limit: 0
-  gaussian_noise_p: 0
-  gaussian_blur_p: 0.1
-  color_jitter_p: 0.1
+  horizontal_flip_p: 0.5
+  vertical_flip_p: 0.0
+  rotation_limit: 10
+  gaussian_noise_p: 0.0
+  gaussian_blur_p: 0.05
+  color_jitter_p: 0.05
+
 device: cuda
 num_workers: 0
 pin_memory: true
+
 logging:
   level: INFO
   log_dir: logs
+
 mlflow:
   enabled: true
-  experiment_name: copyair_experiments_comic
-  tracking_uri: mlruns
+  experiment_name: copyair_deaging_nafnet
+  tracking_uri: sqlite:///mlflow.db
+
 inference:
   target_fps: 24
   frame_sample_rate: 1

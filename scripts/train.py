@@ -461,11 +461,24 @@ def main():
     parser = argparse.ArgumentParser(description="Entrenar U-Net para Image-to-Image Translation")
     parser.add_argument('--config', type=str, default='configs/params.yaml', help='Ruta a archivo de configuración')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo (cuda/cpu)')
+    parser.add_argument('--epochs', type=int, default=None, help='Override número de épocas')
+    parser.add_argument('--batch-size', type=int, default=None, help='Override tamaño de batch')
+    parser.add_argument('--lr', '--learning-rate', type=float, default=None, help='Override learning rate')
+    parser.add_argument('--arch', '--architecture', type=str, default=None, help='Override arquitectura del modelo')
     
     args = parser.parse_args()
     
     config = load_config(args.config)
     config['device'] = args.device
+    
+    if args.epochs is not None:
+        config['training']['epochs'] = args.epochs
+    if args.batch_size is not None:
+        config['training']['batch_size'] = args.batch_size
+    if args.lr is not None:
+        config['training']['learning_rate'] = args.lr
+    if args.arch is not None:
+        config['model']['architecture'] = args.arch
     
     device = setup_device(config['device'])
     
@@ -474,3 +487,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

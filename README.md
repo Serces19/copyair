@@ -31,6 +31,17 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
+**Iniciar MLFlow:**
+```bash
+mlflow server \
+  --backend-store-uri sqlite:///mlflow.db \
+  --default-artifact-root ./artifacts \
+  --host 0.0.0.0 \
+  --port 5000 \
+  --allowed-hosts "*" \
+  --cors-allowed-origins "*"
+```
+
 ### 3. Lanzar el "Control Center"
 Este es el método recomendado para gestionar el core. Inicia la API y la interfaz profesional de una vez.
 
@@ -74,11 +85,30 @@ CopyAir funciona como un **Nodo de Ejecución** (Edge Node) que se conecta a la 
 - **ML Engine:** Basado en PyTorch con soporte para arquitecturas U-Net híbridas y pérdidas de alta fidelidad.
 - **Cloud Ready:** Totalmente compatible con despliegues en contenedores para Vast.ai.
 
-## � Documentación Detallada
-Para más detalles técnicos, consulta la carpeta `docs/`:
-- [`CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md): Guía de despliegue en la nube.
-- [`DEVELOPMENT.md`](docs/DEVELOPMENT.md): Detalles de implementación del core.
-- [`API_INTEGRATION.md`](docs/API_INTEGRATION.md): Documentación de los endpoints.
+## ☁️ Google Colab (Ejecución en GPU Cloud)
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Serces19/copyair/blob/main/notebooks/copyair_colab_training.ipynb)
+
+Puedes entrenar y realizar inferencias directamente en Google Colab con aceleración GPU (T4/A100) utilizando el notebook oficial:
+- [`notebooks/copyair_colab_training.ipynb`](notebooks/copyair_colab_training.ipynb)
+- Incluye sincronización directa con **Google Drive / Google Drive Desktop**, registro offline de MLflow (`sqlite:///mlflow.db`) e inferencia HD/4K por tiles.
 
 ---
+
+## 📚 Documentación Detallada (Índice `/docs/`)
+Para más detalles técnicos y guías de arquitectura, consulta la carpeta `/docs/`:
+- [`MODELS_AND_TRAINING_GUIDE.md`](docs/MODELS_AND_TRAINING_GUIDE.md): **Guía maestra de modelos (NAFNet, ConvNeXt, Residual U-Net, etc.), configuración de pérdidas híbridas y comandos de entrenamiento/inferencia.**
+- [`CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md): Guía de despliegue en la nube (Vast.ai, AWS Serverless).
+- [`DEVELOPMENT.md`](docs/DEVELOPMENT.md): Detalles de implementación del core y flujos de trabajo.
+- [`API_INTEGRATION.md`](docs/API_INTEGRATION.md): Documentación de los endpoints y WebSocket del backend.
+- [`NAFNET_CONVNEXT_GUIDE.md`](docs/NAFNET_CONVNEXT_GUIDE.md): Guía técnica especializada en Few-Shot Learning con NAFNet y ConvNeXt.
+- [`SCHEDULERS_GUIDE.md`](docs/SCHEDULERS_GUIDE.md): Guía de schedulers (Cosine, OneCycle, Plateau).
+- [`BATCH_INFERENCE.md`](docs/BATCH_INFERENCE.md): Inferencia por lotes y comparación de modelos de MLflow.
+
+---
+
+Snippet para actualizar el repo facilmente
+```bash
+git config --global alias.sync '!git fetch origin && git reset --hard origin/main'
+```
 *Desarrollado para NeuralShot Platform.*

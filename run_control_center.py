@@ -12,13 +12,13 @@ def open_browser():
     """Espera un momento a que el servidor inicie y abre el navegador."""
     time.sleep(2)
     print("\n🚀 Lanzando interfaz de Control Center...")
-    webbrowser.open("http://localhost:8000/")
+    webbrowser.open("http://localhost:8123/")
 
 if __name__ == "__main__":
     print("--- CopyAir / NeuralShot Control Center ---")
     
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8123))
     
     # Solo abrir navegador si estamos en localhost o se solicita explícitamente
     if host in ["127.0.0.1", "localhost", "0.0.0.0"] and os.getenv("HEADLESS") != "1":
