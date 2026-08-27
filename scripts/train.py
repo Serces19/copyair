@@ -209,7 +209,8 @@ def train(config: dict, device: torch.device):
     logger.info(f"Iniciando entrenamiento por {config['training']['epochs']} épocas...")
 
     with mlflow_logger.start_run():
-        mlflow_logger.log_params(flatten_dict(config))
+        mlflow_logger.log_params(config)
+
     
         for epoch in range(config['training']['epochs']):
             if killer.kill_now:
