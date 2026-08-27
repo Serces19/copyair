@@ -20,6 +20,9 @@ ENV/
 *~
 .DS_Store
 Thumbs.db
+.tmp.driveupload/
+*.tmp.driveupload*
+
 
 # Datasets & Raw/Processed Data
 data/01_raw/
