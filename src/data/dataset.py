@@ -231,9 +231,13 @@ class PairedImageDataset(Dataset):
         result = {
             'input': input_tensor,
             'gt': gt_tensor,
+            'filename': os.path.basename(input_path),
+            'input_name': os.path.basename(input_path),
+            'gt_name': os.path.basename(gt_path),
             'input_path': input_path,
             'gt_path': gt_path
         }
+
         
         if mask is not None:
             if isinstance(mask, np.ndarray):
