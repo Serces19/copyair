@@ -264,9 +264,7 @@ def train(config: dict, device: torch.device):
 
         logger.info("¡Entrenamiento completado exitosamente!")
         mlflow_logger.log_model(model)
-        
-    finally:
-        mlflow_logger.end_run()
+
 
 
 def main():
