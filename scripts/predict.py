@@ -42,40 +42,37 @@ def load_model(model_path: str, config: dict, device: torch.device):
     """Carga modelo preentrenado detectando arquitectura automáticamente"""
     logger.info(f"Cargando modelo desde: {model_path}")
     
-    # Cargar checkpoint
     checkpoint = torch.load(model_path, map_location=device)
     
-    # Detectar si el checkpoint tiene metadatos (nuevo formato) o solo pesos (formato antiguo)
+    # Extraer state_dict y model_config de forma segura
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        # Nuevo formato: checkpoint con metadatos
-        model_config = checkpoint['model_config']
-        architecture = checkpoint['architecture']
         state_dict = checkpoint['model_state_dict']
-        
-        logger.info(f"✓ Metadatos detectados en checkpoint")
-        logger.info(f"  Arquitectura: {architecture}")
-        logger.info(f"  Época: {checkpoint.get('epoch', 'N/A')}")
-        logger.info(f"  Val Loss: {checkpoint.get('val_loss', 'N/A'):.4f}" if checkpoint.get('val_loss') else "")
+        # Buscar model_config en diferentes llaves posibles
+        model_config = checkpoint.get('model_config') or checkpoint.get('config', {}).get('model') or config.get('model', {})
+        epoch = checkpoint.get('epoch', 'N/A')
+        loss_val = checkpoint.get('loss', checkpoint.get('val_loss', 'N/A'))
+        logger.info(f"✓ Metadatos detectados en checkpoint: Época {epoch} | Loss: {loss_val}")
+    elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+        model_config = checkpoint.get('model_config') or config.get('model', {})
     else:
-        # Formato antiguo: solo state_dict
-        logger.warning("⚠ Checkpoint sin metadatos (formato antiguo)")
-        logger.warning("  Usando configuración de params.yaml")
-        model_config = config['model']
-        architecture = config['model'].get('architecture', 'unet')
+        # Checkpoint es directamente el state_dict
         state_dict = checkpoint
-        logger.info(f"  Arquitectura asumida: {architecture}")
+        model_config = config.get('model', {})
+        logger.info("ℹ️ Checkpoint sin metadatos, usando configuración de params.yaml")
+
+    arch = model_config.get('architecture', config.get('model', {}).get('architecture', 'nafnet'))
+    logger.info(f"  Arquitectura: {arch} (size: {model_config.get('size', 'base')})")
     
-    # Crear modelo usando factory con la configuración detectada
+    # Crear modelo usando factory
     model = get_model(model_config)
-    
-    # Cargar pesos
     model.load_state_dict(state_dict)
     model = model.to(device)
     model.eval()
     
-    logger.info(f"✓ Modelo cargado exitosamente")
-    
+    logger.info("✓ Modelo cargado exitosamente")
     return model
+
 
 
 def predict(config: dict, model_path: str, video_path: str, output_path: str, device: torch.device, native_resolution: bool = False, backend: str = 'opencv', lossless: bool = False, tiled: bool = False, tile_size: int = 512, overlap: int = 64):

@@ -37,29 +37,11 @@ training:
   early_stopping_patience: 500
 
 loss:
-  lambda_l1: 0.0
   lambda_charbonnier: 0.2
   lambda_perceptual: 0.8
-  lambda_laplacian: 0.1
   lambda_dino: 0.2
+  lambda_laplacian: 0.1
   lambda_ssim: 0.0
-  lambda_ffl: 0.0
-  lambda_dreamsim: 0.0
-  lambda_sobel: 0.0
-
-gan:
-  enabled: false
-  lambda_gan: 0.01
-  lambda_feature_matching: 10
-  discriminator:
-    lr: 1e-4
-    n_layers: 3
-
-masked_loss:
-  enabled: false
-  threshold: 0.05
-  dilation_kernel: 5
-  blur_kernel: 5
 
 augmentation:
   enabled: true

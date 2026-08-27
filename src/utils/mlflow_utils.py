@@ -74,9 +74,19 @@ class MLflowLogger:
     def log_model(self, model, artifact_path: str = 'model'):
         if self.enabled:
             try:
-                mlflow.pytorch.log_model(model, artifact_path=artifact_path)
-            except Exception as e:
-                logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
+                import torch
+                dummy_input = torch.randn(1, 3, 256, 256)
+                mlflow.pytorch.log_model(
+                    pytorch_model=model,
+                    artifact_path=artifact_path,
+                    input_example=dummy_input.cpu().numpy()
+                )
+            except Exception:
+                try:
+                    mlflow.pytorch.log_model(pytorch_model=model, artifact_path=artifact_path)
+                except Exception as e:
+                    logger.warning(f"No se pudo loggear el modelo en MLflow: {e}")
+
 
     def end_run(self):
         if self.enabled:

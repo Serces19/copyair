@@ -1,5 +1,5 @@
 """
-Script principal de entrenamiento
+Script principal de entrenamiento para CopyAir
 Uso: python scripts/train.py --config configs/params.yaml
 """
 import tempfile
@@ -12,7 +12,9 @@ from torch.utils.data import DataLoader, random_split, RandomSampler
 import time
 import sys
 import os
+import mlflow
 import numpy as np
+
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -21,7 +23,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data import PairedImageDataset, get_transforms
 from src.models import HybridLoss
-from src.models.discriminator import NLayerDiscriminator # [NEW]
 from src.models.factory import get_model, get_optimizer
 from src.training.train import train_epoch, validate
 from src.training.schedulers import get_scheduler
@@ -45,7 +46,6 @@ def setup_data(config: dict, device: torch.device):
     """Configura datasets y dataloaders"""
     logger.info("Cargando datos...")
     
-    # Transformaciones
     train_transform = get_transforms(
         img_size=config['augmentation']['img_size'],
         augment=config['augmentation']['enabled'],
@@ -57,10 +57,9 @@ def setup_data(config: dict, device: torch.device):
         aug_config=config['augmentation']
     )
     
-    # Configuración de máscara
     mask_config = config.get('masked_loss', {'enabled': False})
     
-    if config['training']['val_split'] == 0:
+    if config['training'].get('val_split', 0) == 0:
         logger.info("Modo: Entrenar con TODO el dataset (sin split de validación estático)")
         
         train_dataset = PairedImageDataset(
@@ -70,7 +69,6 @@ def setup_data(config: dict, device: torch.device):
             mask_config=mask_config
         )
         
-        # Validación: Resolución nativa (con límite para evitar OOM)
         native_val_transform = A.Compose([
             A.LongestMaxSize(max_size=1080),
             A.PadIfNeeded(min_height=None, min_width=None, pad_height_divisor=32, pad_width_divisor=32),
@@ -85,28 +83,27 @@ def setup_data(config: dict, device: torch.device):
             mask_config={'enabled': False}
         )
         
-        # Validación: Muestreo aleatorio limitado para velocidad
-        val_samples = config['training'].get('val_samples', 1)
+        val_samples = config['training'].get('val_samples', 4)
         val_sampler = RandomSampler(full_val_dataset, replacement=True, num_samples=val_samples)
         
         val_loader = DataLoader(
             full_val_dataset,
             batch_size=1,
             sampler=val_sampler,
-            num_workers=config['num_workers'],
-            pin_memory=config['pin_memory']
+            num_workers=config.get('num_workers', 0),
+            pin_memory=config.get('pin_memory', True)
         )
         
         train_loader = DataLoader(
             train_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=True,
-            num_workers=config['num_workers'],
-            pin_memory=config['pin_memory']
+            num_workers=config.get('num_workers', 0),
+            pin_memory=config.get('pin_memory', True)
         )
         
         logger.info(f"Dataset Total: {len(train_dataset)} imágenes")
-        logger.info(f"Validación: {val_samples} muestras aleatorias por época (promediadas)")
+        logger.info(f"Validación: {val_samples} muestras aleatorias")
         
     else:
         base_dataset = PairedImageDataset(
@@ -142,34 +139,33 @@ def setup_data(config: dict, device: torch.device):
             train_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=True,
-            num_workers=config['num_workers'],
-            pin_memory=config['pin_memory']
+            num_workers=config.get('num_workers', 0),
+            pin_memory=config.get('pin_memory', True)
         )
         
         val_loader = DataLoader(
             val_dataset,
             batch_size=config['training']['batch_size'],
             shuffle=False,
-            num_workers=config['num_workers'],
-            pin_memory=config['pin_memory']
+            num_workers=config.get('num_workers', 0),
+            pin_memory=config.get('pin_memory', True)
         )
         
-        logger.info(f"Dataset Total: {len(base_dataset)} imágenes")
-        logger.info(f"Train: {train_size}, Val: {val_size}")
+        logger.info(f"Dataset Total: {len(base_dataset)} imágenes (Train: {train_size}, Val: {val_size})")
     
     return train_loader, val_loader
 
 
 def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=None):
-    """Configura modelo, optimizador y scheduler"""
-    logger.info(f"Inicializando modelo: {config['model'].get('architecture', 'unet')}")
+    """Configura modelo, optimizador y función de pérdida"""
+    arch = config['model'].get('architecture', 'nafnet')
+    logger.info(f"Inicializando modelo: {arch} (size: {config['model'].get('size', 'base')})")
     
     model = get_model(config['model'])
     model = model.to(device)
     
     optimizer = get_optimizer(model, config['training'])
-    
-    scheduler_config = config['training'].get('scheduler', {'type': 'constant'})
+    scheduler_config = config['training'].get('scheduler', {'type': 'cosine'})
     
     if scheduler_config.get('type') == 'onecycle' and train_loader is not None:
         if 'params' not in scheduler_config:
@@ -179,278 +175,84 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
         scheduler_config['params']['max_lr'] = config['training']['learning_rate']
     
     scheduler = get_scheduler(optimizer, scheduler_config)
-    logger.info(f"Scheduler: {scheduler_config.get('type', 'constant')}")
     
+    # Pérdida Híbrida Limpia
+    loss_cfg = config.get('loss', {})
     loss_fn = HybridLoss(
-        lambda_l1=config['loss']['lambda_l1'],
-        lambda_ssim=config['loss']['lambda_ssim'],
-        lambda_perceptual=config['loss']['lambda_perceptual'],
-        lambda_laplacian=config['loss'].get('lambda_laplacian', 0.05),
-        lambda_ffl=config['loss'].get('lambda_ffl', 0.0),
-        lambda_dreamsim=config['loss'].get('lambda_dreamsim', 0.0),
-        lambda_charbonnier=config['loss'].get('lambda_charbonnier', 0.0),
-        lambda_dino=config['loss'].get('lambda_dino', 0.0),
-        lambda_sobel=config['loss'].get('lambda_sobel', 0.0),
+        lambda_charbonnier=float(loss_cfg.get('lambda_charbonnier', 0.2)),
+        lambda_perceptual=float(loss_cfg.get('lambda_perceptual', 0.8)),
+        lambda_dino=float(loss_cfg.get('lambda_dino', 0.2)),
+        lambda_laplacian=float(loss_cfg.get('lambda_laplacian', 0.1)),
+        lambda_ssim=float(loss_cfg.get('lambda_ssim', 0.0)),
         device=str(device)
-    )
-    loss_fn = loss_fn.to(device)
+    ).to(device)
     
     logger.info(f"Parámetros del modelo: {sum(p.numel() for p in model.parameters()):,}")
-    
-    logger.info(f"Parámetros del modelo: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # --- Configurar Discriminador (GAN) ---
-    discriminator = None
-    optimizer_d = None
-    
-    if config.get('gan', {}).get('enabled', False):
-        logger.info("Inicializando Discriminador (PatchGAN)...")
-        gan_config = config['gan']['discriminator']
-        discriminator = NLayerDiscriminator(
-            input_nc=config['model']['in_channels'] + config['model']['out_channels'], # Conditional GAN: Input + Output
-            ndf=gan_config.get('ndf', 64),
-            n_layers=gan_config.get('n_layers', 3)
-        ).to(device)
-        
-        # Optimizador discriminador
-        optimizer_d = torch.optim.AdamW(
-            discriminator.parameters(),
-            lr=float(config['gan']['discriminator']['lr']),
-            betas=(0.5, 0.999) # Beta1 0.5 es estándar para GANs
-        )
-        logger.info(f"Discriminador parámetros: {sum(p.numel() for p in discriminator.parameters()):,}")
-
-    return model, optimizer, scheduler, loss_fn, discriminator, optimizer_d
-
-
-def log_training_sample(train_loader, mlflow_logger, device):
-    """Loguea una muestra de los datos de entrenamiento para visualizar aumentaciones"""
-    try:
-        logger.info("Logueando muestra de datos de entrenamiento...")
-        batch = next(iter(train_loader))
-        # Tomar hasta 4 imágenes
-        n_samples = min(4, batch['input'].size(0))
-        
-        inputs = batch['input'][:n_samples].to(device)
-        gts = batch['gt'][:n_samples].to(device)
-        
-        vis_list = []
-        for i in range(n_samples):
-            inp = tensor_to_numpy(inputs[i])
-            gt = tensor_to_numpy(gts[i])
-            # Concatenar verticalmente input y gt
-            pair = np.concatenate([inp, gt], axis=0)
-            vis_list.append(pair)
-            
-        # Concatenar pares horizontalmente
-        grid = np.concatenate(vis_list, axis=1)
-        grid = (grid * 255).astype(np.uint8)
-        
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
-            Image.fromarray(grid).save(f.name, quality=90)
-            mlflow_logger.log_artifact(f.name, artifact_path='data_samples')
-            os.unlink(f.name)
-            
-    except Exception as e:
-        logger.warning(f"No se pudo loggear muestra de entrenamiento: {e}")
+    return model, optimizer, scheduler, loss_fn
 
 
 def train(config: dict, device: torch.device):
     """Loop principal de entrenamiento"""
-    
     killer = GracefulKiller()
     mlflow_logger = MLflowLogger(config)
 
-    # Datos
     train_loader, val_loader = setup_data(config, device)
+    model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device, train_loader)
 
-    # Modelo
-    model, optimizer, scheduler, loss_fn, discriminator, optimizer_d = setup_model_and_optimizer(config, device, train_loader)
-
+    scaler = torch.cuda.amp.GradScaler() if config.get('training', {}).get('mixed_precision', True) and device.type == 'cuda' else None
 
     # Directorio de modelos
-    Path(config['data']['models_dir']).mkdir(parents=True, exist_ok=True)
+    models_dir = Path(config['data']['models_dir'])
+    models_dir.mkdir(parents=True, exist_ok=True)
 
     best_train_loss = float('inf')
-    last_saved_epoch = -1
-    patience_counter = 0
-    
-    # Variables para reutilizar datos de validación
-    latest_val_input = None
-    latest_val_target = None
-    latest_val_pred = None
-
     logger.info("Iniciando entrenamiento...")
 
-    # Iniciar MLflow run
     mlflow_logger.start_run()
     
     try:
         mlflow_logger.log_params(config)
 
-        min_delta = 0.02
-        epsilon = 1e-8
-
         for epoch in range(config['training']['epochs']):
             if killer.kill_now:
-                logger.info("🛑 Deteniendo entrenamiento por señal de usuario.")
-                # Checkpoint de emergencia
-                ckpt_path = Path(config['data']['models_dir']) / f'interrupted_checkpoint_epoch_{epoch}.pth'
-                torch.save({
-                    'model_state_dict': model.state_dict(),
-                    'epoch': epoch,
-                }, ckpt_path)
+                logger.info("Deteniendo entrenamiento por señal de usuario.")
+                ckpt_path = models_dir / f'interrupted_checkpoint_epoch_{epoch}.pth'
+                torch.save({'model_state_dict': model.state_dict(), 'epoch': epoch}, ckpt_path)
                 mlflow_logger.log_artifact(str(ckpt_path), artifact_path='checkpoints')
                 break
 
             epoch_start = time.time()
 
-            # --- Entrenamiento ---
-            train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch, discriminator, optimizer_d, config)
+            # Entrenamiento
+            train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch, config, scaler=scaler)
             mlflow_logger.log_metric('train/loss', train_metrics['loss'], step=epoch)
-            if 'd_loss' in train_metrics:
-                 mlflow_logger.log_metric('train/d_loss', train_metrics['d_loss'], step=epoch)
-            if 'g_gan_loss' in train_metrics:
-                 mlflow_logger.log_metric('train/g_gan_loss', train_metrics['g_gan_loss'], step=epoch)
 
-            # Loguear muestra de entrenamiento
-            #log_training_sample(train_loader, mlflow_logger, device)
-
-            # --- Validación ---
-            val_metrics = None
+            # Validación
             val_interval = config['training'].get('val_interval', 50)
-            
-            if epoch == 0 or epoch % val_interval == 0:
-                t_val_start = time.time()
-                # Determinar límite de batches
-                limit_batches = None
-                if config['training']['val_split'] == 0:
-                     limit_batches = config['training'].get('val_samples', 1)
-
-                # Ahora validate retorna también las imágenes del último batch
+            if epoch == 0 or (epoch + 1) % val_interval == 0:
+                limit_batches = config['training'].get('val_samples', 4) if config['training'].get('val_split', 0) == 0 else None
                 val_metrics, val_in, val_gt, val_out = validate(model, val_loader, loss_fn, device, limit_batches=limit_batches)
-                
-                # Guardar para visualización posterior
-                latest_val_input = val_in
-                latest_val_target = val_gt
-                latest_val_pred = val_out
-                
-                val_time = time.time() - t_val_start
                 
                 mlflow_logger.log_metric('val/psnr', val_metrics['val_psnr'], step=epoch)
                 mlflow_logger.log_metric('val/ssim', val_metrics['val_ssim'], step=epoch)
-                mlflow_logger.log_metric('val/crop_lpips', val_metrics['val_lpips_sliding'], step=epoch)
-                mlflow_logger.log_metric('time/val_duration', val_time, step=epoch)
-                
-                logger.info(f"[Validación] PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f} | LPIPS: {val_metrics['val_lpips_sliding']:.4f}")
+                logger.info(f"[Época {epoch + 1}/{config['training']['epochs']}] Loss: {train_metrics['loss']:.4f} | PSNR: {val_metrics['val_psnr']:.2f} | SSIM: {val_metrics['val_ssim']:.3f}")
 
-
-            # --- Visualización ---
-            if (epoch + 1) % config['training'].get('viz_interval', 250) == 0:
-                try:
-                    viz_start = time.time()
-                    
-                    # Usar datos cacheados si existen, si no, intentar obtener del loader (fallback)
-                    if latest_val_input is not None:
-                        input_vis_t = latest_val_input[0]
-                        gt_vis_t = latest_val_target[0]
-                        pred_vis_t = latest_val_pred[0]
-                    else:
-                        logger.info("Generando visualización (sin cache de validación)...")
-                        batch = next(iter(val_loader))
-                        input_vis_t = batch['input'][0].to(device)
-                        gt_vis_t = batch['gt'][0].to(device)
-                        model.eval()
-                        with torch.no_grad():
-                            pred_vis_t = model(input_vis_t.unsqueeze(0)).squeeze(0)
-
-                    # Procesar imágenes
-                    input_vis = tensor_to_numpy(input_vis_t)
-                    gt_vis = tensor_to_numpy(gt_vis_t)
-                    pred_vis = tensor_to_numpy(pred_vis_t)
-                    
-                    comparison = np.concatenate([input_vis, gt_vis, pred_vis], axis=1)
-                    comparison = (comparison * 255).astype(np.uint8)
-
-                    # Guardar como artifact genérico (opcional, para tenerlo en Artifacts)
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-                        Image.fromarray(comparison).save(f.name)
-                        mlflow_logger.log_artifact(f.name, artifact_path=f'predictions/epoch_{epoch+1}')
-                        os.unlink(f.name)
-
-                    # Loggear también como imagen reconocida por MLflow (para el grid en Model Metrics)
-                    mlflow.log_image(comparison, f"epoch_{epoch+1}.png")
-
-                    mlflow_logger.log_metric('time/viz_duration', time.time() - viz_start, step=epoch)
-                    logger.info(f"✓ Imagen de validación guardada y loggeada (época {epoch+1})")
-
-                except Exception as e:
-                    logger.warning(f"No se pudo guardar imagen de validación: {e}")
-
-            # --- Scheduler ---
-            scheduler.step()
-            mlflow_logger.log_metric('train/lr', scheduler.get_last_lr()[0], step=epoch)
-
-            # --- Logging Consola ---
-            if val_metrics:
-                logger.info(
-                    f"Época {epoch + 1}/{config['training']['epochs']} | "
-                    f"Train Loss: {train_metrics['loss']:.4f} | "
-                    f"Val Loss: {val_metrics['val_loss']:.4f} | "
-                    f"PSNR: {val_metrics['val_psnr']:.2f} | "
-                    f"LPIPS: {val_metrics['val_lpips_sliding']:.4f}"
-                )
-            else:
-                logger.info(f"Época {epoch + 1}/{config['training']['epochs']} | Train Loss: {train_metrics['loss']:.4f}")
-
-            # --- Guardado de Modelos ---
-            # Guardar mejor modelo (basado en train loss por few-shot strategy)
-            if epoch > 250 and (train_metrics['loss'] < best_train_loss * (1 - min_delta) - epsilon or epoch - last_saved_epoch >= config['training']['early_stopping_patience']):
-                last_saved_epoch = epoch
+            # Guardar mejor modelo
+            if train_metrics['loss'] < best_train_loss:
                 best_train_loss = train_metrics['loss']
-                patience_counter = 0
-
-                # Obtener el run_id actual
-                run_id = mlflow_logger.get_run_id()
-                if not run_id:
-                    run_id = f"offline_run_{int(time.time())}"
-                    logger.warning(f"No MLflow run_id found. Using fallback: {run_id}")
-
-                # Crear carpeta única para este run
-                run_dir = Path(config['data']['models_dir']) / run_id
-                run_dir.mkdir(parents=True, exist_ok=True)
-
-                # Guardar best model dentro de esa carpeta
-                arch_name = config['model'].get('architecture', 'unet')
-                best_path = run_dir / f'best_model_{arch_name}.pth'
-                
-                save_dict = {
+                arch_name = config['model'].get('architecture', 'model')
+                best_path = models_dir / f'best_model_{arch_name}.pth'
+                torch.save({
                     'model_state_dict': model.state_dict(),
-                    'model_config': config['model'],
-                    'architecture': arch_name,
                     'epoch': epoch,
-                    'train_loss': train_metrics['loss']
-                }
-                
-                # Guardar discriminador si existe
-                if discriminator is not None:
-                     save_dict['discriminator_state_dict'] = discriminator.state_dict()
-                
-                torch.save(save_dict, best_path)
-                
-                logger.info(f"✓ Mejor modelo guardado (Train Loss: {train_metrics['loss']:.4f})")
-                mlflow_logger.log_artifact(str(best_path), artifact_path='checkpoints')
-            else:
-                patience_counter += 1
-                if patience_counter >= config['training']['early_stopping_patience']:
-                    logger.info(f"Early stopping después de {epoch + 1} épocas")
-                    break
+                    'loss': train_metrics['loss'],
+                    'config': config
+                }, best_path)
 
-            # Tiempo total
-            epoch_time = time.time() - epoch_start
-            mlflow_logger.log_metric('time/epoch_duration', epoch_time, step=epoch)
+            if scheduler is not None:
+                scheduler.step()
 
-        logger.info("¡Entrenamiento completado!")
+        logger.info("¡Entrenamiento completado exitosamente!")
         mlflow_logger.log_model(model)
         
     finally:
@@ -481,10 +283,8 @@ def main():
         config['model']['architecture'] = args.arch
     
     device = setup_device(config['device'])
-    
     train(config, device)
 
 
 if __name__ == '__main__':
     main()
-
