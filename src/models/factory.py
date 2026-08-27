@@ -107,25 +107,20 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
             use_dilated_bottleneck=res_cfg.get('use_dilated_bottleneck', True)
         )
 
-    # 7. Modern U-Net (FiLM / AdaIN / Attention)
+    # 7. Modern U-Net (Pre-Act ResBlocks + Bottleneck Self-Attention + Attention Gates)
     elif arch == 'modern_unet':
         modern_cfg = config.get('modern', {})
-        input_map_ch = config.get('input_map_channels', 0)
         return ModernUNet(
             in_channels=in_channels,
             out_channels=out_channels,
-            input_map_channels=input_map_ch,
             base_channels=base_channels,
             norm_type=norm_type,
             activation=activation,
             dropout=dropout,
-            use_film=modern_cfg.get('use_film', True),
-            use_adain=modern_cfg.get('use_adain', False),
-            attention_type=modern_cfg.get('attention_type', 'self'),
-            cond_dim=modern_cfg.get('cond_dim', 128)
+            attention_type=modern_cfg.get('attention_type', 'self')
         )
 
-    # 8. Smart U-Net
+    # 8. Smart U-Net (100% Persistent Skip Connections)
     elif arch == 'smart_unet':
         smart_cfg = config.get('smart', {})
         return SmartUNet(
@@ -136,9 +131,9 @@ def get_model(config: Dict[str, Any]) -> nn.Module:
             activation=activation,
             dropout=dropout,
             use_attention=smart_cfg.get('use_attention', False),
-            use_smart_filter=smart_cfg.get('use_smart_filter', False),
-            drop_skip_prob=float(smart_cfg.get('drop_skip_prob', 0.0))
+            use_smart_filter=smart_cfg.get('use_smart_filter', False)
         )
+
 
     # 9. SwinV2 U-Net
     elif arch == 'swin_unet':

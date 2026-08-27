@@ -43,14 +43,9 @@ def verify_model(config, arch_name, custom_cfg=None):
 
         for shape in test_shapes:
             x = torch.randn(*shape)
-            kwargs = {}
-            if arch_name == 'modern_unet':
-                if cfg.get('modern', {}).get('use_film', False) or cfg.get('modern', {}).get('use_adain', False):
-                    cond_dim = cfg.get('modern', {}).get('cond_dim', 128)
-                    kwargs['cond_vector'] = torch.randn(1, cond_dim)
-
             with torch.no_grad():
-                y = model(x, **kwargs)
+                y = model(x)
+
 
             if isinstance(y, dict):
                 y_rgb = y['rgb']

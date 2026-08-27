@@ -133,51 +133,7 @@ class AttentionGate(nn.Module):
         psi = self.psi(psi)
         return x * psi
 
-class FiLMLayer(nn.Module):
-    """
-    Feature-wise Linear Modulation.
-    y = gamma * x + beta
-    """
-    def __init__(self, in_channels, cond_dim=None):
-        super().__init__()
-        self.in_channels = in_channels
-        self.cond_dim = cond_dim
-        # If cond_dim is provided, we assume an external MLP generates gamma/beta
-        # Otherwise, this layer expects gamma/beta to be passed in forward
-        
-    def forward(self, x, gamma, beta):
-        # x: (B, C, H, W)
-        # gamma, beta: (B, C)
-        
-        # Ensure dimensions match for broadcasting
-        gamma = gamma.view(x.size(0), self.in_channels, 1, 1)
-        beta = beta.view(x.size(0), self.in_channels, 1, 1)
-        
-        return x * gamma + beta
 
-class AdaINBlock(nn.Module):
-    """
-    Adaptive Instance Normalization.
-    Normalized content x scaled and shifted by style y.
-    """
-    def __init__(self):
-        super().__init__()
-        
-    def calc_mean_std(self, feat, eps=1e-5):
-        # feat: (B, C, H, W)
-        size = feat.size()
-        N, C = size[:2]
-        feat_var = feat.view(N, C, -1).var(dim=2) + eps
-        feat_std = feat_var.sqrt().view(N, C, 1, 1)
-        feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
-        return feat_mean, feat_std
-
-    def forward(self, x, style_mean, style_std):
-        # x: Content features
-        # style_mean/std: From style vector or reference image
-        content_mean, content_std = self.calc_mean_std(x)
-        normalized = (x - content_mean) / content_std
-        return normalized * style_std + style_mean
 
 class SmartFilter(nn.Module):
     """1x1 Conv + Activation to 'break' direct skip connection info"""
