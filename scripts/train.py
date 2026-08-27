@@ -226,7 +226,15 @@ def train(config: dict, device: torch.device):
 
             # Entrenamiento
             train_metrics = train_epoch(model, train_loader, optimizer, loss_fn, device, epoch, config, scaler=scaler)
-            mlflow_logger.log_metric('train/loss', train_metrics['loss'], step=epoch)
+            for m_key, m_val in train_metrics.items():
+                if m_key in ('loss', 'total'):
+                    mlflow_logger.log_metric('train/loss', m_val, step=epoch)
+                elif m_key == 'perceptual':
+                    mlflow_logger.log_metric('train/lpips', m_val, step=epoch)
+                    mlflow_logger.log_metric('train/perceptual', m_val, step=epoch)
+                else:
+                    mlflow_logger.log_metric(f'train/{m_key}', m_val, step=epoch)
+
 
             # Validación
             val_interval = config['training'].get('val_interval', 50)

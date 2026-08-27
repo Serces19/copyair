@@ -42,10 +42,13 @@ class PerceptualLoss(nn.Module):
     def __init__(self, net_type: str = 'alex', device: str = 'cuda'):
         super().__init__()
         target_device = torch.device(device if torch.cuda.is_available() else 'cpu')
+        print(f"[PerceptualLoss] Cargando LPIPS ({net_type.upper()} backbone) en {target_device}...")
         self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=net_type, normalize=False).to(target_device)
         self.lpips.eval()
         for p in self.lpips.parameters():
             p.requires_grad = False
+        print(f"✓ [PerceptualLoss] LPIPS ({net_type.upper()}) inicializado exitosamente.")
+
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred_clean = torch.nan_to_num(pred, nan=0.0, posinf=1.0, neginf=-1.0)
