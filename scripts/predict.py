@@ -88,16 +88,13 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
     else:
         arch_name = config['model'].get('architecture', 'unet')
     
-    # Modificar output_path para incluir arquitectura
-    from pathlib import Path
     output_path_obj = Path(output_path)
-    if output_path_obj.suffix:  # Es un archivo (video)
-        output_path_modified = output_path_obj.parent / f"{output_path_obj.stem}_{arch_name}{output_path_obj.suffix}"
-    else:  # Es un directorio (secuencia)
-        output_path_modified = Path(str(output_path_obj) + f"_{arch_name}")
+    if output_path_obj.suffix:
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        output_path_obj.mkdir(parents=True, exist_ok=True)
     
     # Transformaciones
-    # Si native_resolution es True, NO redimensionamos (resize=False)
     should_resize = not native_resolution
     transform = get_inference_transforms(config['augmentation']['img_size'], resize=should_resize)
     
@@ -105,7 +102,7 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
     predict_on_video(
         model,
         video_path,
-        str(output_path_modified),
+        str(output_path_obj),
         device,
         transform=transform,
         target_fps=config['inference']['target_fps'],
@@ -117,7 +114,8 @@ def predict(config: dict, model_path: str, video_path: str, output_path: str, de
         overlap=overlap
     )
     
-    logger.info(f"✓ Salida generada: {output_path_modified}")
+    logger.info(f"✓ Salida generada: {output_path_obj}")
+
 
 
 def extract_frames(video_path: str, output_dir: str, sample_rate: int = 1):
