@@ -29,9 +29,12 @@ def train_epoch(
     Entrena el modelo durante una época de forma limpia, eficiente y con Mixed Precision (AMP).
     """
     model.train()
+    if hasattr(optimizer, 'train'):
+        optimizer.train()
     accumulated_metrics = {}
     num_batches = 0
     use_amp = config.get('training', {}).get('mixed_precision', True) and (device.type == 'cuda')
+
 
     for batch_idx, batch in enumerate(train_loader):
         input_img = batch['input'].to(device, non_blocking=True)

@@ -213,5 +213,25 @@ def get_optimizer(model: nn.Module, config: Dict[str, Any]) -> optim.Optimizer:
             weight_decay=weight_decay,
             momentum=opt_params.get('momentum', 0)
         )
+    elif opt_type in ('schedulefree_adamw', 'schedule_free_adamw', 'schedulefree', 'schedule_free'):
+        try:
+            import schedulefree
+            return schedulefree.AdamWScheduleFree(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay,
+                betas=(opt_params.get('beta1', 0.9), opt_params.get('beta2', 0.999))
+            )
+        except ImportError:
+            import subprocess
+            subprocess.run(['pip', 'install', 'schedulefree'], check=True)
+            import schedulefree
+            return schedulefree.AdamWScheduleFree(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay,
+                betas=(opt_params.get('beta1', 0.9), opt_params.get('beta2', 0.999))
+            )
     else:
         raise ValueError(f"Optimizador no soportado: {opt_type}")
+

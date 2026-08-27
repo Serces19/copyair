@@ -15,20 +15,17 @@ model:
 training:
   epochs: 1500
   batch_size: 4
-  learning_rate: 0.0002
+  learning_rate: 0.0005
   weight_decay: 1e-4
   mixed_precision: true
   gradient_accumulation_steps: 1
   clear_cache_every_n_epochs: 10
   optimizer:
-    type: adamw
+    type: schedule_free_adamw
     beta1: 0.9
     beta2: 0.999
   scheduler:
-    type: cosine
-    params:
-      T_max: 1500
-      eta_min: 1e-6
+    type: none
   val_split: 0
   val_interval: 50
   val_samples: 4
@@ -39,13 +36,11 @@ training:
 loss:
   lambda_charbonnier: 1.0
   lambda_perceptual: 0.8
-  lambda_laplacian: 0.1
   lambda_dino: 0.1
-  lambda_ssim: 0.1
+  lambda_ssim: 0.0
 
 augmentation:
   enabled: true
-  mode: resize
   img_size: 512
   horizontal_flip_p: 0.5
   vertical_flip_p: 0.0

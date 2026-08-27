@@ -18,6 +18,9 @@ numpy>=1.24.0
 
 # --- Perceptual & Semantic Losses ---
 dreamsim>=0.2.1
+lpips>=0.1.4
+schedulefree>=1.2.0
+
 
 # --- Data Science & Visualization ---
 matplotlib>=3.7.0

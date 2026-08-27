@@ -176,13 +176,12 @@ def setup_model_and_optimizer(config: dict, device: torch.device, train_loader=N
     
     scheduler = get_scheduler(optimizer, scheduler_config)
     
-    # Pérdida Híbrida Limpia
+    # Pérdida Híbrida
     loss_cfg = config.get('loss', {})
     loss_fn = HybridLoss(
-        lambda_charbonnier=float(loss_cfg.get('lambda_charbonnier', 0.2)),
+        lambda_charbonnier=float(loss_cfg.get('lambda_charbonnier', 1.0)),
         lambda_perceptual=float(loss_cfg.get('lambda_perceptual', 0.8)),
-        lambda_dino=float(loss_cfg.get('lambda_dino', 0.2)),
-        lambda_laplacian=float(loss_cfg.get('lambda_laplacian', 0.1)),
+        lambda_dino=float(loss_cfg.get('lambda_dino', 0.1)),
         lambda_ssim=float(loss_cfg.get('lambda_ssim', 0.0)),
         device=str(device)
     ).to(device)
@@ -203,20 +202,18 @@ def train(config: dict, device: torch.device):
 
 
     # Directorio de modelos
-    models_dir = Path(config['data']['models_dir'])
+    models_dir = Path(config['data'].get('models_dir', 'models'))
     models_dir.mkdir(parents=True, exist_ok=True)
 
     best_train_loss = float('inf')
-    logger.info("Iniciando entrenamiento...")
+    logger.info(f"Iniciando entrenamiento por {config['training']['epochs']} épocas...")
 
-    mlflow_logger.start_run()
+    with mlflow_logger.start_run():
+        mlflow_logger.log_params(flatten_dict(config))
     
-    try:
-        mlflow_logger.log_params(config)
-
         for epoch in range(config['training']['epochs']):
             if killer.kill_now:
-                logger.info("Deteniendo entrenamiento por señal de usuario.")
+                logger.info(f"Entrenamiento interrumpido por el usuario en la época {epoch}. Guardando checkpoint...")
                 ckpt_path = models_dir / f'interrupted_checkpoint_epoch_{epoch}.pth'
                 torch.save({'model_state_dict': model.state_dict(), 'epoch': epoch}, ckpt_path)
                 mlflow_logger.log_artifact(str(ckpt_path), artifact_path='checkpoints')
@@ -239,8 +236,12 @@ def train(config: dict, device: torch.device):
             # Validación
             val_interval = config['training'].get('val_interval', 50)
             if epoch == 0 or (epoch + 1) % val_interval == 0:
+                if hasattr(optimizer, 'eval'):
+                    optimizer.eval()
                 limit_batches = config['training'].get('val_samples', 4) if config['training'].get('val_split', 0) == 0 else None
                 val_metrics, val_in, val_gt, val_out = validate(model, val_loader, loss_fn, device, limit_batches=limit_batches)
+                if hasattr(optimizer, 'train'):
+                    optimizer.train()
                 
                 mlflow_logger.log_metric('val/psnr', val_metrics['val_psnr'], step=epoch)
                 mlflow_logger.log_metric('val/ssim', val_metrics['val_ssim'], step=epoch)
