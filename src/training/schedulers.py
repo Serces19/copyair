@@ -157,8 +157,12 @@ def get_scheduler(optimizer: Optimizer, config: Dict[str, Any]):
             eta_min=float(params.get('eta_min', 0))
         )
     
+    elif scheduler_type in ('none', 'null', 'schedule_free', 'schedulefree', 'disabled'):
+        return None
+    
     else:
         raise ValueError(
             f"Scheduler no soportado: {scheduler_type}. "
-            f"Opciones: constant, cosine, step, exponential, plateau, onecycle, cosine_warmup"
+            f"Opciones: none, constant, cosine, step, exponential, plateau, onecycle, cosine_warmup"
         )
+
