@@ -1,89 +1,72 @@
 """
-Augmentaciones de datos usando albumentations
+Augmentaciones de datos optimizadas para VFX y Few-Shot Video Restoration
 """
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from typing import Optional
+from typing import Optional, Dict
 
 
 def get_transforms(
-    img_size: int = 256,
+    img_size: int = 512,
     augment: bool = True,
-    aug_config: dict = None
+    aug_config: Optional[dict] = None
 ) -> dict:
     """
-    Define transformaciones separadas para geometría (ambas imágenes) y normalización.
-    
-    IMPORTANTE: Para pares de imágenes (input/GT) donde la única diferencia es el efecto
-    deseado (ej: quitar arrugas), NO debemos aplicar noise/blur de forma diferente.
-    Solo geometric augmentations se aplican a ambas para mantener alignment.
-    
-    Normalizamos a [-1, 1] que es el estándar para image-to-image translation.
-    
-    Args:
-        img_size: Tamaño de imagen destino
-        augment: Si aplicar augmentaciones geométricas
-        aug_config: Diccionario con configuración de augmentaciones desde params.yaml
-    
-    Returns:
-        Diccionario con 'common' (geometric), 'input' y 'gt' (normalización)
+    Define transformaciones geométricas y normalización para pares de imágenes VFX.
+    Por defecto, escala el frame completo (LongestMaxSize + Pad) para que el modelo
+    vea toda la escena y el efecto (wire removal, de-aging, etc.) sin recortarlo aleatoriamente.
     """
-    
-    # Configuración por defecto si no se proporciona
     if aug_config is None:
-        aug_config = {
-            'horizontal_flip_p': 0.2,
-            'vertical_flip_p': 0.2,
-            'rotation_limit': 15,
-            'gaussian_noise_p': 0.0,
-            'gaussian_blur_p': 0.0,
-            'color_jitter_p': 0.0
-        }
-    
-    # Transformaciones geométricas (aplicar a Input y GT por igual)
-    if augment:
-        # Multi-Scale Training (Zoom-Out)
-        geometric_transforms = []
-        
-        # Escalar hacia abajo para que el crop cubra más área (contexto global)
-        scale_limit = aug_config.get('random_scale_limit', 0.0)
-        if scale_limit != 0:
-            # scale_limit puede ser float (ej: -0.5) o tuple (ej: (-0.5, 0.0))
-            # Si es float negativo, A.RandomScale lo interpreta como rango [1+scale_limit, 1]
-            geometric_transforms.append(A.RandomScale(scale_limit=scale_limit, p=0.5))
+        aug_config = {}
 
-        geometric_transforms.append(A.RandomCrop(width=img_size, height=img_size, p=1))
-        
-        # Flips
-        if aug_config.get('horizontal_flip_p', 0) > 0:
-            geometric_transforms.append(A.HorizontalFlip(p=aug_config['horizontal_flip_p']))
-        if aug_config.get('vertical_flip_p', 0) > 0:
-            geometric_transforms.append(A.VerticalFlip(p=aug_config['vertical_flip_p']))
-        
-        # Rotation
-        rotation_limit = aug_config.get('rotation_limit', 0)
-        if rotation_limit > 0:
-            geometric_transforms.append(A.Rotate(limit=rotation_limit, p=0.5))
-        
-        common_transforms = A.Compose(geometric_transforms, additional_targets={'image0': 'image', 'mask': 'mask'})
+    mode = aug_config.get('mode', 'resize')
+    geometric_transforms = []
+
+    if mode == 'crop':
+        geometric_transforms.append(A.RandomCrop(width=img_size, height=img_size, p=1.0))
+    elif mode == 'direct_resize':
+        geometric_transforms.append(A.Resize(height=img_size, width=img_size))
     else:
-        common_transforms = A.Compose([
-            A.RandomCrop(width=img_size, height=img_size, p=1),
-        ], additional_targets={'image0': 'image', 'mask': 'mask'})
+        # Modo VFX recomendado: Escalar manteniendo relación de aspecto y rellenar a múltiplo de 32
+        geometric_transforms.extend([
+            A.LongestMaxSize(max_size=img_size),
+            A.PadIfNeeded(
+                min_height=img_size,
+                min_width=img_size,
+                pad_height_divisor=32,
+                pad_width_divisor=32,
+                border_mode=0
+            )
+        ])
 
-    # Normalización a [-1, 1] para Input
-    # Fórmula: (pixel / 255.0) * 2 - 1  →  [0, 255] → [0, 1] → [-1, 1]
+    if augment:
+        # Flips sutiles
+        if aug_config.get('horizontal_flip_p', 0.5) > 0:
+            geometric_transforms.append(A.HorizontalFlip(p=aug_config.get('horizontal_flip_p', 0.5)))
+        if aug_config.get('vertical_flip_p', 0.0) > 0:
+            geometric_transforms.append(A.VerticalFlip(p=aug_config.get('vertical_flip_p', 0.0)))
+        
+        # Rotación ligera si está configurada
+        rot_limit = aug_config.get('rotation_limit', 0)
+        if rot_limit > 0:
+            geometric_transforms.append(A.Rotate(limit=rot_limit, p=0.5, border_mode=0))
+
+    common_transforms = A.Compose(
+        geometric_transforms,
+        additional_targets={'image0': 'image', 'mask': 'mask'}
+    )
+
+    # Normalización a [-1, 1]
     input_norm = A.Compose([
         A.Normalize(
-            mean=[0.5, 0.5, 0.5],  # Centra en 0
-            std=[0.5, 0.5, 0.5],   # Escala a [-1, 1]
+            mean=[0.5, 0.5, 0.5],
+            std=[0.5, 0.5, 0.5],
             max_pixel_value=255.0
         ),
         ToTensorV2(),
     ])
-    
-    # GT también a [-1, 1] (mismo rango que el output del modelo)
+
     gt_norm = A.Compose([
         A.Normalize(
             mean=[0.5, 0.5, 0.5],
@@ -92,26 +75,29 @@ def get_transforms(
         ),
         ToTensorV2(),
     ])
-    
+
     return {
-        'common': common_transforms,      # Geometric (ambos)
-        'input': input_norm,               # Normalize a [-1, 1]
-        'gt': gt_norm                      # Normalize a [-1, 1]
+        'common': common_transforms,
+        'input': input_norm,
+        'gt': gt_norm
     }
 
 
-def get_inference_transforms(img_size: int = 256, resize: bool = True) -> A.Compose:
+def get_inference_transforms(img_size: int = 512, resize: bool = True) -> A.Compose:
     """
     Transformaciones para inferencia (solo input) - Normalización a [-1, 1]
-    
-    Args:
-        img_size: Tamaño destino si resize=True
-        resize: Si es False, NO redimensiona (útil para inferencia en resolución nativa)
     """
     transforms_list = []
     
     if resize:
-        transforms_list.append(A.Resize(img_size, img_size))
+        transforms_list.extend([
+            A.LongestMaxSize(max_size=img_size),
+            A.PadIfNeeded(pad_height_divisor=32, pad_width_divisor=32, border_mode=0)
+        ])
+    else:
+        transforms_list.append(
+            A.PadIfNeeded(pad_height_divisor=32, pad_width_divisor=32, border_mode=0)
+        )
         
     transforms_list.extend([
         A.Normalize(
