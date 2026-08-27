@@ -199,7 +199,8 @@ def train(config: dict, device: torch.device):
     train_loader, val_loader = setup_data(config, device)
     model, optimizer, scheduler, loss_fn = setup_model_and_optimizer(config, device, train_loader)
 
-    scaler = torch.cuda.amp.GradScaler() if config.get('training', {}).get('mixed_precision', True) and device.type == 'cuda' else None
+    scaler = torch.amp.GradScaler('cuda') if config.get('training', {}).get('mixed_precision', True) and device.type == 'cuda' else None
+
 
     # Directorio de modelos
     models_dir = Path(config['data']['models_dir'])

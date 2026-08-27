@@ -44,8 +44,9 @@ def train_epoch(
 
         # Forward con Autocast (Mixed Precision)
         if use_amp:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):
                 output = model(input_img)
+
                 if isinstance(output, dict):
                     output = output['rgb']
                 losses_dict = loss_fn(output, target_img, mask=mask)

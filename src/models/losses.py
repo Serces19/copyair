@@ -48,9 +48,10 @@ class PerceptualLoss(nn.Module):
             p.requires_grad = False
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        # Asegurar tensor en device correcto
-        pred_clamped = torch.clamp(pred, -1.0, 1.0)
-        target_clamped = torch.clamp(target, -1.0, 1.0)
+        pred_clean = torch.nan_to_num(pred, nan=0.0, posinf=1.0, neginf=-1.0)
+        target_clean = torch.nan_to_num(target, nan=0.0, posinf=1.0, neginf=-1.0)
+        pred_clamped = torch.clamp(pred_clean, -1.0, 1.0)
+        target_clamped = torch.clamp(target_clean, -1.0, 1.0)
         distance = self.lpips(pred_clamped, target_clamped)
         self.lpips.reset()
         return distance
@@ -85,7 +86,8 @@ class DinoLoss(nn.Module):
 
     def _preprocess_gpu(self, x: torch.Tensor) -> torch.Tensor:
         """[-1, 1] -> [0, 1] -> ImageNet Norm -> 224x224 (Diferenciable)"""
-        x_01 = (x + 1.0) * 0.5
+        x_clean = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
+        x_01 = (x_clean + 1.0) * 0.5
         x_01 = torch.clamp(x_01, 0.0, 1.0)
         x_norm = (x_01 - self.mean.to(x.device)) / self.std.to(x.device)
         # Interpolación antialiased a 224x224 (múltiplo del patch 14x14 de DINOv2)
@@ -93,6 +95,7 @@ class DinoLoss(nn.Module):
         if self.use_fp16:
             x_224 = x_224.half()
         return x_224
+
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pred_in = self._preprocess_gpu(pred)
