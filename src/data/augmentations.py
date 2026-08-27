@@ -1,5 +1,5 @@
 """
-Augmentaciones y transformaciones de datos para CopyAir
+Augmentaciones y transformaciones de datos para CopyAir (RandomCrop)
 """
 
 import albumentations as A
@@ -13,14 +13,13 @@ def get_transforms(
     aug_config: Optional[dict] = None
 ) -> dict:
     """
-    Transformaciones estándar para pares de entrenamiento (Input / GT).
-    Redimensiona directamente a img_size x img_size y normaliza a [-1, 1].
+    Transformaciones estándar para pares de entrenamiento usando RandomCrop original.
     """
     if aug_config is None:
         aug_config = {}
 
     geometric_transforms = [
-        A.Resize(height=img_size, width=img_size)
+        A.RandomCrop(width=img_size, height=img_size, p=1.0)
     ]
 
     if augment:
